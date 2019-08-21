@@ -1,0 +1,69 @@
+#
+# Keyspace info
+#
+keyspace: difftest
+
+#
+# The CQL for creating a keyspace (optional if it already exists)
+#
+keyspace_definition: |
+  CREATE KEYSPACE difftest WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+#
+# Table info
+#
+table: wide1
+
+#
+# The CQL for creating a table you wish to stress (optional if it already exists)
+#
+table_definition: |
+  CREATE TABLE wide1 (
+        pk int,
+        c1 int,
+        c2 int,
+        v1 text,
+        v2 int,
+        PRIMARY KEY(pk, c1, c2)
+  ) 
+    WITH compaction = { 'class':'LeveledCompactionStrategy' }
+
+#
+# Optional meta information on the generated columns in the above table
+# The min and max only apply to text and blob types
+# The distribution field represents the total unique population
+# distribution of that column across rows.  Supported types are
+# 
+#      EXP(min..max)                        An exponential distribution over the range [min..max]
+#      EXTREME(min..max,shape)              An extreme value (Weibull) distribution over the range [min..max]
+#      GAUSSIAN(min..max,stdvrng)           A gaussian/normal distribution, where mean=(min+max)/2, and stdev is (mean-min)/stdvrng
+#      GAUSSIAN(min..max,mean,stdev)        A gaussian/normal distribution, with explicitly defined mean and stdev
+#      UNIFORM(min..max)                    A uniform distribution over the range [min, max]
+#      FIXED(val)                           A fixed distribution, always returning the same value
+#      Aliases: extr, gauss, normal, norm, weibull
+#
+#      If preceded by ~, the distribution is inverted
+#
+# Defaults for all columns are size: uniform(4..8), population: uniform(1..100B), cluster: fixed(1)
+#
+columnspec:
+  - name: pk
+    population: uniform(1..1B)
+  - name: c1
+    cluster: uniform(1..100)
+  - name: c2
+    cluster: uniform(1..100)
+  - name: v1
+    size: fixed(20)
+  - name: v2
+    population: uniform(1..100)
+
+insert:
+  partitions: fixed(1)       # number of unique partitions to update in a single operation
+  batchtype: UNLOGGED        # type of batch to use
+
+
+queries:
+   simple1:
+      cql: select * from wide where pk = ? AND c1 = ? AND c2 = ? LIMIT 1
+      fields: samerow
