@@ -38,6 +38,13 @@
       <module>api-server</module>
     </modules>
 
+    <scm>
+      <connection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-diff.git</connection>
+      <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/cassandra-diff.git</developerConnection>
+      <url>https://github.com/apache/cassandra-diff/tree/${project.scm.tag}</url>
+      <tag>master</tag>
+    </scm>
+
     <properties>
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -98,6 +105,11 @@
     </dependencyManagement>
     <build>
       <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>2.5.3</version>
+        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
