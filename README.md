@@ -1,4 +1,4 @@
-# Cassandra diff
+# Apache Cassandra diff
 
 ## Configuration
 See `spark-job/localconfig.yaml` for an example config.
@@ -84,3 +84,58 @@ $ curl -s localhost:8089/jobs/99b8d556-07ed-4bfd-b978-7d9b7b2cc21a/results | pyt
   ]
 
 ```
+## Releases
+We push maven artifacts to `repository.apache.org`. To create a release, follow the instructions
+[here|http://www.apache.org/dev/publishing-maven-artifacts.html], basically:
+
+1. make sure your `~/.m2/settings.xml` has entries for the apache repositories:
+   ```xml
+   <settings>
+   ...
+       <servers>
+           <!-- To publish a snapshot of some part of Maven -->
+           <server>
+               <id>apache.snapshots.https</id>
+               <username> <!-- YOUR APACHE LDAP USERNAME --> </username>
+               <password> <!-- YOUR APACHE LDAP PASSWORD (encrypted) --> </password>
+           </server>
+           <!-- To stage a release of some part of Maven -->
+           <server>
+               <id>apache.releases.https</id>
+               <username> <!-- YOUR APACHE LDAP USERNAME --> </username>
+               <password> <!-- YOUR APACHE LDAP PASSWORD (encrypted) --> </password>
+           </server>
+           ...
+       </servers>
+    </settings>
+   ```
+2. Generate GPG keys:
+  ```shell script
+$ gpg --gen-key
+  ```
+
+3. Try a local install with the apache profile to make sure everything is setup correctly:
+  ```shell script
+$ mvn clean install -Papache-release
+  ```
+  Note, if you get an error like `gpg: signing failed: Inappropriate ioctl for device` you can run the command like
+  this instead:
+  ```shell script
+$ GPG_TTY=$(tty) mvn clean install -Papache-release
+  ```
+
+4. Publish a snapshot:
+  ```shell script
+$ mvn deploy
+  ```
+
+5. Prepare the release:
+  ```shell script
+$ mvn release:clean
+$ mvn release:prepare
+  ```
+
+6. Stage the release for a vote
+  ```shell script
+$ mvn release:perform
+  ```
