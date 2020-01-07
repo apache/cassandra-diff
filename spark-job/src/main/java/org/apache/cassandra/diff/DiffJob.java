@@ -149,7 +149,10 @@ public class DiffJob {
             throw new RuntimeException("Diff job failed", e);
         } finally {
             if (sc.isLocal())
+            {
                 Differ.shutdown();
+                JobMetadataDb.ProgressTracker.resetStatements();
+            }
         }
     }
 

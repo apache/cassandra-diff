@@ -129,6 +129,15 @@ public class JobMetadataDb {
 
         }
 
+        public static void resetStatements()
+        {
+            updateStmt = null;
+            mismatchStmt = null;
+            errorSummaryStmt = null;
+            errorDetailStmt = null;
+            updateCompleteStmt = null;
+        }
+
         /**
          *
          * @param table
@@ -400,15 +409,23 @@ public class JobMetadataDb {
 
 
         public void markNotRunning(UUID jobId) {
-            logger.info("Marking job {} as not running", jobId);
+            try
+            {
+                logger.info("Marking job {} as not running", jobId);
 
-            ResultSet rs = session.execute(String.format("DELETE FROM %s.%s WHERE job_id = ? IF EXISTS",
-                                                         keyspace, Schema.RUNNING_JOBS),
-                                           jobId);
-            if (!rs.one().getBool("[applied]")) {
-                logger.warn("Non-fatal: Unable to mark job %s as not running, check logs for errors " +
-                            "during initialization as there may be no entry for this job in the {} table",
+                ResultSet rs = session.execute(String.format("DELETE FROM %s.%s WHERE job_id = ? IF EXISTS",
+                        keyspace, Schema.RUNNING_JOBS),
+                        jobId);
+                if (!rs.one().getBool("[applied]"))
+                {
+                    logger.warn("Non-fatal: Unable to mark job %s as not running, check logs for errors " +
+                                    "during initialization as there may be no entry for this job in the {} table",
                             jobId, Schema.RUNNING_JOBS);
+                }
+            } catch (Exception e) {
+                // Because this is called from another exception handler, we don't want to lose the original exception
+                // just because we may not have been able to mark the job as not running. Just log here
+                logger.error("Could not mark job {} as not running.", e);
             }
         }
     }
