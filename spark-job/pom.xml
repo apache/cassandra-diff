@@ -25,7 +25,7 @@
     <parent>
         <groupId>org.apache.cassandra.diff</groupId>
         <artifactId>diff</artifactId>
-        <version>0.1-SNAPSHOT</version>
+        <version>0.2-SNAPSHOT</version>
     </parent>
 
     <modelVersion>4.0.0</modelVersion>
@@ -90,6 +90,10 @@
                         <relocation>
                             <pattern>com.google</pattern>
                             <shadedPattern>relocated.com.google</shadedPattern>
+                        </relocation>
+                        <relocation>
+                            <pattern>com.datastax</pattern>
+                            <shadedPattern>relocated.com.datastax</shadedPattern>
                         </relocation>
                     </relocations>
                 </configuration>

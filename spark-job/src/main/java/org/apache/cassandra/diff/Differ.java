@@ -307,14 +307,17 @@ public class Differ implements Serializable
             if (srcDiffCluster != null) {
                 srcDiffCluster.stop();
                 srcDiffCluster.close();
+                srcDiffCluster = null;
             }
             if (targetDiffCluster != null) {
                 targetDiffCluster.stop();
                 targetDiffCluster.close();
+                targetDiffCluster = null;
             }
             if (journalSession != null) {
                 journalSession.close();
                 journalSession.getCluster().close();
+                journalSession = null;
             }
             COMPARISON_EXECUTOR.shutdown();
         }
