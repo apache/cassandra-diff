@@ -29,7 +29,7 @@
     </parent>
 
     <modelVersion>4.0.0</modelVersion>
-    <artifactId>spark-job</artifactId>
+    <artifactId>spark-uberjar</artifactId>
     <packaging>jar</packaging>
 
     <dependencies>
@@ -41,31 +41,40 @@
             <version>${project.parent.version}</version>
         </dependency>
 
-        <!-- provided dependencies -->
         <dependency>
-          <groupId>org.jetbrains</groupId>
-          <artifactId>annotations</artifactId>
+            <groupId>org.apache.cassandra.diff</groupId>
+            <artifactId>spark-job</artifactId>
+            <version>${project.parent.version}</version>
         </dependency>
-
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_2.11</artifactId>
-            <version>2.3.3</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-sql_2.11</artifactId>
-            <version>2.3.2</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <!-- test dependencies -->
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-        </dependency>
-
     </dependencies>
+
+    <build>
+        <plugins>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.1</version>
+                <executions>
+                    <!-- Run shade goal on package phase -->
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <relocations>
+                        <relocation>
+                            <pattern>com.google</pattern>
+                            <shadedPattern>relocated.com.google</shadedPattern>
+                        </relocation>
+                    </relocations>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
 </project>

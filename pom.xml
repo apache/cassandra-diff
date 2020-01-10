@@ -31,11 +31,12 @@
     <groupId>org.apache.cassandra.diff</groupId>
     <artifactId>diff</artifactId>
     <packaging>pom</packaging>
-    <version>0.1-SNAPSHOT</version>
+    <version>0.2-SNAPSHOT</version>
     <modules>
       <module>common</module>
       <module>spark-job</module>
       <module>api-server</module>
+      <module>spark-uberjar</module>
     </modules>
 
     <scm>
