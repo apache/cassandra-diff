@@ -43,7 +43,7 @@ $ docker run --name cas-src -d  -p 9042:9042 cassandra:3.0.18
 $ docker run --name cas-tgt -d  -p 9043:9042 cassandra:latest
 $ docker exec cas-src cassandra-stress write n=1k
 $ docker exec cas-tgt cassandra-stress write n=1k
-$ spark-submit --verbose --files ./spark-job/localconfig.yaml --class org.apache.cassandra.diff.DiffJob spark-job/target/spark-job-0.1-SNAPSHOT.jar localconfig.yaml
+$ spark-submit --verbose --files ./spark-job/localconfig.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig.yaml
 # ... logs
 INFO  DiffJob:124 - FINISHED: {standard1=Matched Partitions - 1000, Mismatched Partitions - 0, Partition Errors - 0, Partitions Only In Source - 0, Partitions Only In Target - 0, Skipped Partitions - 0, Matched Rows - 1000, Matched Values - 6000, Mismatched Values - 0 }
 ## start api-server:
