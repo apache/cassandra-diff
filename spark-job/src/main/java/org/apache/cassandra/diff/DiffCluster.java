@@ -86,8 +86,10 @@ public class DiffCluster implements AutoCloseable
         try {
             return Uninterruptibles.getUninterruptibly(fetchPartitionKeys(table, prevToken, token));
         }
-        catch (ExecutionException e) {
-            throw new RuntimeException(e);
+        catch (ExecutionException ex) {
+            throw new RuntimeException(String.format("Unable to get partition keys (%s, %s] in table (%s) from cluster (%s)",
+                                                     prevToken, token, table, clusterId.name()),
+                                       ex);
         }
     }
 
@@ -118,9 +120,16 @@ public class DiffCluster implements AutoCloseable
     }
 
     public Iterator<Row> getPartition(TableSpec table, PartitionKey key, boolean shouldReverse) {
-        return readPartition(table.getTable(), key, shouldReverse)
-               .getUninterruptibly()
-               .iterator();
+        try {
+            return readPartition(table.getTable(), key, shouldReverse)
+                       .getUninterruptibly()
+                       .iterator();
+        }
+        catch (Exception ex) {
+            throw new RuntimeException(String.format("Unable to get partition (%s) in table (%s) from cluster (%s)",
+                                                     key.getTokenAsBigInteger(), table, clusterId.name()),
+                                       ex);
+        }
     }
 
     private ResultSetFuture readPartition(String table, final PartitionKey key, boolean shouldReverse) {
