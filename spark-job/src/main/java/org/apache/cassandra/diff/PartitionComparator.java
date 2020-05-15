@@ -20,12 +20,13 @@
 package org.apache.cassandra.diff;
 
 import java.util.Iterator;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.*;
+import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.Row;
 
 public class PartitionComparator implements Callable<PartitionStats> {
 

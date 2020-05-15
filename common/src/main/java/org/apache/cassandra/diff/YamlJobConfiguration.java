@@ -34,8 +34,7 @@ import org.yaml.snakeyaml.constructor.CustomClassLoaderConstructor;
 
 public class YamlJobConfiguration implements JobConfiguration {
     public int splits = 10000;
-    public String keyspace;
-    public List<String> tables;
+    public List<KeyspaceTablePair> keyspace_tables;
     public int buckets = 100;
     public int rate_limit = 10000;
     public String job_id = null;
@@ -59,12 +58,8 @@ public class YamlJobConfiguration implements JobConfiguration {
         }
     }
 
-    public String keyspace() {
-        return keyspace;
-    }
-
-    public List<String> tables() {
-        return tables;
+    public List<KeyspaceTablePair> keyspaceTables() {
+        return keyspace_tables;
     }
 
     public int splits() {
@@ -127,8 +122,7 @@ public class YamlJobConfiguration implements JobConfiguration {
     public String toString() {
         return "YamlJobConfiguration{" +
                "splits=" + splits +
-               ", keyspace='" + keyspace + '\'' +
-               ", tables=" + tables +
+               ", keyspace_tables=" + keyspace_tables +
                ", buckets=" + buckets +
                ", rate_limit=" + rate_limit +
                ", job_id='" + job_id + '\'' +

@@ -28,7 +28,10 @@ import java.util.stream.StreamSupport;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import com.datastax.driver.core.*;
+import com.datastax.driver.core.ColumnDefinitions;
+import com.datastax.driver.core.DataType;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.Token;
 import org.jetbrains.annotations.NotNull;
 
 public class PartitionKey implements Comparable<PartitionKey> {

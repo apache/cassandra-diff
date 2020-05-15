@@ -19,7 +19,10 @@
 
 package org.apache.cassandra.diff;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 

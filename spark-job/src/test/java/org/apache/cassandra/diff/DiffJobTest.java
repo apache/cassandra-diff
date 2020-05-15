@@ -24,9 +24,6 @@ import java.util.List;
 
 import org.junit.Test;
 
-import org.apache.cassandra.diff.DiffJob;
-import org.apache.cassandra.diff.TokenHelper;
-
 import static org.junit.Assert.assertEquals;
 
 public class DiffJobTest

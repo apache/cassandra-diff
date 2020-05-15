@@ -33,9 +33,6 @@ import com.google.common.reflect.TypeToken;
 import org.junit.Test;
 
 import com.datastax.driver.core.*;
-import org.apache.cassandra.diff.PartitionComparator;
-import org.apache.cassandra.diff.PartitionStats;
-import org.apache.cassandra.diff.TableSpec;
 
 import static org.junit.Assert.assertEquals;
 
@@ -221,7 +218,7 @@ public class PartitionComparatorTest {
     }
 
     TableSpec spec(String table, List<String> clusteringColumns, List<String> regularColumns) {
-        return new TableSpec(table, columns(clusteringColumns), columns(regularColumns));
+        return new TableSpec(new KeyspaceTablePair("ks", table), columns(clusteringColumns), columns(regularColumns));
     }
 
     List<ColumnMetadata> columns(List<String> names) {

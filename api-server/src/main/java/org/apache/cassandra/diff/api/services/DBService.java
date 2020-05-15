@@ -80,8 +80,7 @@ public class DBService implements Closeable {
             "   job_id," +
             "   job_start_time," +
             "   buckets," +
-            "   keyspace_name, " +
-            "   table_names, " +
+            "   qualified_table_names, " +
             "   source_cluster_name," +
             "   source_cluster_desc," +
             "   target_cluster_name," +
@@ -92,7 +91,7 @@ public class DBService implements Closeable {
         jobResultStatement = session.prepare(String.format(
             " SELECT " +
             "   job_id," +
-            "   table_name, " +
+            "   qualified_table_name, " +
             "   matched_partitions," +
             "   mismatched_partitions,"   +
             "   matched_rows,"   +
@@ -102,12 +101,12 @@ public class DBService implements Closeable {
             "   partitions_only_in_target,"   +
             "   skipped_partitions"   +
             " FROM %s.job_results" +
-            " WHERE job_id = ? AND table_name = ?", diffKeyspace));
+            " WHERE job_id = ? AND qualified_table_name = ?", diffKeyspace));
         jobStatusStatement = session.prepare(String.format(
             " SELECT " +
             "   job_id,"   +
             "   bucket,"   +
-            "   table_name,"   +
+            "   qualified_table_name,"   +
             "   completed "   +
             " FROM %s.job_status" +
             " WHERE job_id = ? AND bucket = ?", diffKeyspace));
@@ -115,7 +114,7 @@ public class DBService implements Closeable {
             " SELECT " +
             "   job_id," +
             "   bucket," +
-            "   table_name," +
+            "   qualified_table_name," +
             "   mismatching_token," +
             "   mismatch_type" +
             " FROM %s.mismatches" +
@@ -123,14 +122,14 @@ public class DBService implements Closeable {
         jobErrorSummaryStatement = session.prepare(String.format(
             " SELECT " +
             "   count(start_token) AS error_count," +
-            "   table_name" +
+            "   qualified_table_name" +
             " FROM %s.task_errors" +
             " WHERE job_id = ? AND bucket = ?",
             diffKeyspace));
         jobErrorRangesStatement = session.prepare(String.format(
             " SELECT " +
             "   bucket,"   +
-            "   table_name,"   +
+            "   qualified_table_name,"   +
             "   start_token,"   +
             "   end_token"   +
             " FROM %s.task_errors" +
@@ -138,10 +137,10 @@ public class DBService implements Closeable {
             diffKeyspace));
         jobErrorDetailStatement = session.prepare(String.format(
             " SELECT " +
-            "   table_name,"   +
+            "   qualified_table_name,"   +
             "   error_token"   +
             " FROM %s.partition_errors" +
-            " WHERE job_id = ? AND bucket = ? AND table_name = ? AND start_token = ? AND end_token = ?", diffKeyspace));
+            " WHERE job_id = ? AND bucket = ? AND qualified_table_name = ? AND start_token = ? AND end_token = ?", diffKeyspace));
         jobsStartDateStatement = session.prepare(String.format(
             " SELECT " +
             "   job_id" +
@@ -190,8 +189,8 @@ public class DBService implements Closeable {
 
     public Collection<JobResult> fetchJobResults(UUID jobId) {
         JobSummary summary = fetchJobSummary(jobId);
-        List<ResultSetFuture> futures = Lists.newArrayListWithCapacity(summary.tables.size());
-        for (String table : summary.tables)
+        List<ResultSetFuture> futures = Lists.newArrayListWithCapacity(summary.keyspaceTables.size());
+        for (String table : summary.keyspaceTables)
             futures.add(session.executeAsync(jobResultStatement.bind(jobId, table)));
 
         SortedSet<JobResult> results = Sets.newTreeSet();
@@ -206,8 +205,8 @@ public class DBService implements Closeable {
         for (int i = 0; i < summary.buckets; i++)
             futures.add(session.executeAsync(jobStatusStatement.bind(jobId, i)));
 
-        Map<String, Long> completedByTable = Maps.newHashMapWithExpectedSize(summary.tables.size());
-        processFutures(futures, row -> completedByTable.merge(row.getString("table_name"),
+        Map<String, Long> completedByTable = Maps.newHashMapWithExpectedSize(summary.keyspaceTables.size());
+        processFutures(futures, row -> completedByTable.merge(row.getString("qualified_table_name"),
                                                               row.getLong("completed"),
                                                               Long::sum));
         return new JobStatus(jobId, completedByTable);
@@ -220,8 +219,8 @@ public class DBService implements Closeable {
         for (int i = 0; i < summary.buckets; i++)
             futures.add(session.executeAsync(jobMismatchesStatement.bind(jobId, i)));
 
-        Map<String, List<Mismatch>> mismatchesByTable = Maps.newHashMapWithExpectedSize(summary.tables.size());
-        processFutures(futures, row -> mismatchesByTable.merge(row.getString("table_name"),
+        Map<String, List<Mismatch>> mismatchesByTable = Maps.newHashMapWithExpectedSize(summary.keyspaceTables.size());
+        processFutures(futures, row -> mismatchesByTable.merge(row.getString("qualified_table_name"),
                                                                Lists.newArrayList(new Mismatch(row.getString("mismatching_token"),
                                                                                                row.getString("mismatch_type"))),
                                                                (l1, l2) -> { l1.addAll(l2); return l1;}));
@@ -235,11 +234,11 @@ public class DBService implements Closeable {
         for (int i = 0; i < summary.buckets; i++)
             futures.add(session.executeAsync(jobErrorSummaryStatement.bind(jobId, i)));
 
-        Map<String, Long> errorCountByTable = Maps.newHashMapWithExpectedSize(summary.tables.size());
+        Map<String, Long> errorCountByTable = Maps.newHashMapWithExpectedSize(summary.keyspaceTables.size());
         processFutures(futures, row -> {
-            String table = row.getString("table_name");
+            String table = row.getString("qualified_table_name");
             if (null != table) {
-                errorCountByTable.merge(row.getString("table_name"),
+                errorCountByTable.merge(row.getString("qualified_table_name"),
                                         row.getLong("error_count"),
                                         Long::sum);
             }
@@ -254,8 +253,8 @@ public class DBService implements Closeable {
         for (int i = 0; i < summary.buckets; i++)
             futures.add(session.executeAsync(jobErrorRangesStatement.bind(jobId, i)));
 
-        Map<String, List<Range>> errorRangesByTable = Maps.newHashMapWithExpectedSize(summary.tables.size());
-        processFutures(futures, row -> errorRangesByTable.merge(row.getString("table_name"),
+        Map<String, List<Range>> errorRangesByTable = Maps.newHashMapWithExpectedSize(summary.keyspaceTables.size());
+        processFutures(futures, row -> errorRangesByTable.merge(row.getString("qualified_table_name"),
                                                                 Lists.newArrayList(new Range(row.getString("start_token"),
                                                                                              row.getString("end_token"))),
                                                                 (l1, l2) -> { l1.addAll(l2); return l1;}));
@@ -273,13 +272,13 @@ public class DBService implements Closeable {
         processFutures(rangeFutures,
                        row -> session.executeAsync(jobErrorDetailStatement.bind(jobId,
                                                                                 row.getInt("bucket"),
-                                                                                row.getString("table_name"),
+                                                                                row.getString("qualified_table_name"),
                                                                                 row.getString("start_token"),
                                                                                 row.getString("end_token"))),
                        errorFutures::add);
-        Map<String, List<String>> errorsByTable = Maps.newHashMapWithExpectedSize(summary.tables.size());
+        Map<String, List<String>> errorsByTable = Maps.newHashMapWithExpectedSize(summary.keyspaceTables.size());
         processFutures(errorFutures,
-                       row -> errorsByTable.merge(row.getString("table_name"),
+                       row -> errorsByTable.merge(row.getString("qualified_table_name"),
                                                   Lists.newArrayList(row.getString("error_token")),
                                                   (l1, l2) -> { l1.addAll(l2); return l1;}));
         return new JobErrorDetail(jobId, errorsByTable);
@@ -472,7 +471,7 @@ public class DBService implements Closeable {
 
         static JobResult fromRow(Row row) {
             return new JobResult(row.getUUID("job_id"),
-                                 row.getString("table_name"),
+                                 row.getString("qualified_table_name"),
                                  row.getLong("matched_partitions"),
                                  row.getLong("mismatched_partitions"),
                                  row.getLong("matched_rows"),
@@ -494,8 +493,7 @@ public class DBService implements Closeable {
 
         final UUID jobId;
         final int buckets;
-        final String keyspace;
-        final List<String> tables;
+        final List<String> keyspaceTables;
         final String sourceClusterName;
         final String sourceClusterDesc;
         final String targetClusterName;
@@ -509,8 +507,7 @@ public class DBService implements Closeable {
         private JobSummary(UUID jobId,
                            DateTime startTime,
                            int buckets,
-                           String keyspace,
-                           List<String> tables,
+                           List<String> keyspaceTables,
                            String sourceClusterName,
                            String sourceClusterDesc,
                            String targetClusterName,
@@ -521,8 +518,7 @@ public class DBService implements Closeable {
             this.startTime = startTime;
             this.start = startTime.toString();
             this.buckets = buckets;
-            this.keyspace = keyspace;
-            this.tables = tables;
+            this.keyspaceTables = keyspaceTables;
             this.sourceClusterName = sourceClusterName;
             this.sourceClusterDesc = sourceClusterDesc;
             this.targetClusterName = targetClusterName;
@@ -534,8 +530,7 @@ public class DBService implements Closeable {
             return new JobSummary(row.getUUID("job_id"),
                                   new DateTime(UUIDs.unixTimestamp(row.getUUID("job_start_time")), DateTimeZone.UTC),
                                   row.getInt("buckets"),
-                                  row.getString("keyspace_name"),
-                                  row.getList("table_names", String.class),
+                                  row.getList("qualified_table_names", String.class),
                                   row.getString("source_cluster_name"),
                                   row.getString("source_cluster_desc"),
                                   row.getString("target_cluster_name"),

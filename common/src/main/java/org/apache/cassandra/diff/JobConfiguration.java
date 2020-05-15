@@ -26,9 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface JobConfiguration extends Serializable {
-    String keyspace();
-
-    List<String> tables();
+    List<KeyspaceTablePair> keyspaceTables();
 
     int splits();
 
