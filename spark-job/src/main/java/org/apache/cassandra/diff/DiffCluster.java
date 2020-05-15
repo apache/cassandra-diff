@@ -43,12 +43,11 @@ public class DiffCluster implements AutoCloseable
 
     public enum Type {SOURCE, TARGET}
 
-    private final Map<String, PreparedStatement[]> preparedStatements = new HashMap<>();
+    private final Map<KeyspaceTablePair, PreparedStatement[]> preparedStatements = new HashMap<>();
     private final ConsistencyLevel consistencyLevel;
     public final Cluster cluster;
     private final Session session;
     private final TokenHelper tokenHelper;
-    public final String keyspace;
     public final List<BigInteger> tokenList;
 
     public final RateLimiter getPartitionRateLimiter;
@@ -61,7 +60,6 @@ public class DiffCluster implements AutoCloseable
 
     public DiffCluster(Type clusterId,
                        Cluster cluster,
-                       String keyspace,
                        ConsistencyLevel consistencyLevel,
                        RateLimiter getPartitionRateLimiter,
                        int tokenScanFetchSize,
@@ -69,7 +67,6 @@ public class DiffCluster implements AutoCloseable
                        int readTimeoutMillis)
 
     {
-        this.keyspace = keyspace;
         this.consistencyLevel = consistencyLevel;
         this.cluster = cluster;
         this.tokenHelper = TokenHelper.forPartitioner(cluster.getMetadata().getPartitioner());
@@ -82,7 +79,7 @@ public class DiffCluster implements AutoCloseable
         this.readTimeoutMillis = readTimeoutMillis;
     }
 
-    public Iterator<PartitionKey> getPartitionKeys(String table, final BigInteger prevToken, final BigInteger token) {
+    public Iterator<PartitionKey> getPartitionKeys(KeyspaceTablePair table, final BigInteger prevToken, final BigInteger token) {
         try {
             return Uninterruptibles.getUninterruptibly(fetchPartitionKeys(table, prevToken, token));
         }
@@ -93,7 +90,7 @@ public class DiffCluster implements AutoCloseable
         }
     }
 
-    private ListenableFuture<Iterator<PartitionKey>> fetchPartitionKeys(String table, final BigInteger prevToken, final BigInteger token) {
+    private ListenableFuture<Iterator<PartitionKey>> fetchPartitionKeys(KeyspaceTablePair table, final BigInteger prevToken, final BigInteger token) {
         BoundStatement statement = keyReader(table).bind(tokenHelper.forBindParam(prevToken),
                                                          tokenHelper.forBindParam(token));
         statement.setFetchSize(tokenScanFetchSize);
@@ -132,10 +129,10 @@ public class DiffCluster implements AutoCloseable
         }
     }
 
-    private ResultSetFuture readPartition(String table, final PartitionKey key, boolean shouldReverse) {
+    private ResultSetFuture readPartition(KeyspaceTablePair keyspaceTablePair, final PartitionKey key, boolean shouldReverse) {
         BoundStatement statement = shouldReverse
-                                   ? reverseReader(table).bind(key.getComponents().toArray())
-                                   : forwardReader(table).bind(key.getComponents().toArray());
+                                   ? reverseReader(keyspaceTablePair).bind(key.getComponents().toArray())
+                                   : forwardReader(keyspaceTablePair).bind(key.getComponents().toArray());
         statement.setFetchSize(partitionReadFetchSize);
         statement.setReadTimeoutMillis(readTimeoutMillis);
         getPartitionRateLimiter.acquire();
@@ -153,38 +150,38 @@ public class DiffCluster implements AutoCloseable
         cluster.closeAsync();
     }
 
-    private PreparedStatement keyReader(String table) {
-        return getStatementForTable(table, 0);
+    private PreparedStatement keyReader(KeyspaceTablePair keyspaceTablePair) {
+        return getStatementForTable(keyspaceTablePair, 0);
     }
 
-    private PreparedStatement forwardReader(String table) {
-        return getStatementForTable(table, 1);
+    private PreparedStatement forwardReader(KeyspaceTablePair keyspaceTablePair) {
+        return getStatementForTable(keyspaceTablePair, 1);
     }
 
-    private PreparedStatement reverseReader(String table) {
-        return getStatementForTable(table, 2);
+    private PreparedStatement reverseReader(KeyspaceTablePair keyspaceTablePair) {
+        return getStatementForTable(keyspaceTablePair, 2);
     }
 
-    private PreparedStatement getStatementForTable(String table, int index) {
-        if (!preparedStatements.containsKey(table)) {
+    private PreparedStatement getStatementForTable(KeyspaceTablePair keyspaceTablePair, int index) {
+        if (!preparedStatements.containsKey(keyspaceTablePair)) {
             synchronized (this) {
-                if (!preparedStatements.containsKey(table)) {
-                    PreparedStatement keyStatement = getKeyStatement(table);
-                    PreparedStatement[] partitionReadStmts = getFullStatement(table);
-                    preparedStatements.put(table, new PreparedStatement[]{ keyStatement ,
-                                                                           partitionReadStmts[0],
-                                                                           partitionReadStmts[1] });
+                if (!preparedStatements.containsKey(keyspaceTablePair)) {
+                    PreparedStatement keyStatement = getKeyStatement(keyspaceTablePair);
+                    PreparedStatement[] partitionReadStmts = getFullStatement(keyspaceTablePair);
+                    preparedStatements.put(keyspaceTablePair, new PreparedStatement[]{ keyStatement ,
+                                                                                       partitionReadStmts[0],
+                                                                                       partitionReadStmts[1] });
                 }
             }
         }
-        return preparedStatements.get(table)[index];
+        return preparedStatements.get(keyspaceTablePair)[index];
     }
 
-    private PreparedStatement getKeyStatement(@NotNull String table) {
+    private PreparedStatement getKeyStatement(@NotNull KeyspaceTablePair keyspaceTablePair) {
         final TableMetadata tableMetadata = session.getCluster()
                                                    .getMetadata()
-                                                   .getKeyspace(cqlizedString(keyspace))
-                                                   .getTable(cqlizedString(table));
+                                                   .getKeyspace(cqlizedString(keyspaceTablePair.keyspace))
+                                                   .getTable(cqlizedString(keyspaceTablePair.table));
         String[] partitionKeyColumns = columnNames(tableMetadata.getPartitionKey());
 
         Select.Selection selection = QueryBuilder.select().distinct().column(token(partitionKeyColumns));
@@ -199,11 +196,11 @@ public class DiffCluster implements AutoCloseable
         return session.prepare(select).setConsistencyLevel(consistencyLevel);
     }
 
-    private PreparedStatement[] getFullStatement(@NotNull String table) {
+    private PreparedStatement[] getFullStatement(@NotNull KeyspaceTablePair keyspaceTablePair) {
         final TableMetadata tableMetadata = session.getCluster()
                                                    .getMetadata()
-                                                   .getKeyspace(cqlizedString(keyspace))
-                                                   .getTable(cqlizedString(table));
+                                                   .getKeyspace(cqlizedString(keyspaceTablePair.keyspace))
+                                                   .getTable(cqlizedString(keyspaceTablePair.table));
         String[] partitionKeyColumns = columnNames(tableMetadata.getPartitionKey());
         String[] allColumns = columnNames(tableMetadata.getColumns());
 

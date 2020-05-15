@@ -41,9 +41,15 @@ $ cd cassandra-diff
 $ mvn package
 $ docker run --name cas-src -d  -p 9042:9042 cassandra:3.0.18
 $ docker run --name cas-tgt -d  -p 9043:9042 cassandra:latest
-$ docker exec cas-src cassandra-stress write n=1k
-$ docker exec cas-tgt cassandra-stress write n=1k
+# Create 1000 rows in table "standard1" under keyspace "keyspace1"
+$ docker exec cas-src cassandra-stress write n=1k -schema keyspace="keyspace1"
+$ docker exec cas-tgt cassandra-stress write n=1k -schema keyspace="keyspace1"
+# Optionally, create another 1000 rows in table "standard1" under keyspace "keyspace2"
+$ docker exec cas-src cassandra-stress write n=1k -schema keyspace="keyspace2"
+$ docker exec cas-tgt cassandra-stress write n=1k -schema keyspace="keyspace2"
 $ spark-submit --verbose --files ./spark-job/localconfig.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig.yaml
+# If rows are created in "keyspace2", you can run pick up the localconfig-multi-keyspaces.yaml to compare data across multiple keyspaces! See the command below.
+# $ spark-submit --verbose --files ./spark-job/localconfig-multi-keyspaces.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig-multi-keyspaces.yaml
 # ... logs
 INFO  DiffJob:124 - FINISHED: {standard1=Matched Partitions - 1000, Mismatched Partitions - 0, Partition Errors - 0, Partitions Only In Source - 0, Partitions Only In Target - 0, Skipped Partitions - 0, Matched Rows - 1000, Matched Values - 6000, Mismatched Values - 0 }
 ## start api-server:
@@ -55,9 +61,8 @@ $ curl -s localhost:8089/jobs/recent | python -mjson.tool
       {
           "jobId": "99b8d556-07ed-4bfd-b978-7d9b7b2cc21a",
           "buckets": 100,
-          "keyspace": "keyspace1",
-          "tables": [
-              "standard1"
+          "keyspace_tables": [
+              "keyspace1.standard1"
           ],
           "sourceClusterName": "local_test_1",
           "sourceClusterDesc": "ContactPoints Cluster: name=name, dc=datacenter1, contact points= [127.0.0.1]",
@@ -71,7 +76,7 @@ $ curl -s localhost:8089/jobs/99b8d556-07ed-4bfd-b978-7d9b7b2cc21a/results | pyt
   [
       {
           "jobId": "99b8d556-07ed-4bfd-b978-7d9b7b2cc21a",
-          "table": "standard1",
+          "table": "keyspace1.standard1",
           "matchedPartitions": 1000,
           "mismatchedPartitions": 0,
           "matchedRows": 1000,

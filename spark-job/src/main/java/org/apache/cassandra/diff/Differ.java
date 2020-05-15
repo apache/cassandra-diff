@@ -24,6 +24,7 @@ import java.io.Serializable;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.function.BiConsumer;
@@ -53,8 +54,7 @@ public class Differ implements Serializable
     private final UUID jobId;
     private final DiffJob.Split split;
     private final TokenHelper tokenHelper;
-    private final String keyspace;
-    private final List<String> tables;
+    private final List<KeyspaceTablePair> keyspaceTables;
     private final RateLimiter rateLimiter;
     private final DiffJob.TrackerProvider trackerProvider;
     private final double reverseReadProbability;
@@ -92,8 +92,7 @@ public class Differ implements Serializable
         this.jobId = params.jobId;
         this.split = split;
         this.tokenHelper = tokenHelper;
-        this.keyspace = params.keyspace;
-        this.tables = params.tables;
+        this.keyspaceTables = params.keyspaceTables;
         this.trackerProvider = trackerProvider;
         rateLimiter = RateLimiter.create(perExecutorRateLimit);
         this.reverseReadProbability = config.reverseReadProbability();
@@ -110,7 +109,6 @@ public class Differ implements Serializable
             {
                 srcDiffCluster = new DiffCluster(DiffCluster.Type.SOURCE,
                                                  sourceProvider.getCluster(),
-                                                 params.keyspace,
                                                  cl,
                                                  rateLimiter,
                                                  config.tokenScanFetchSize(),
@@ -122,7 +120,6 @@ public class Differ implements Serializable
             {
                 targetDiffCluster = new DiffCluster(DiffCluster.Type.TARGET,
                                                     targetProvider.getCluster(),
-                                                    params.keyspace,
                                                     cl,
                                                     rateLimiter,
                                                     config.tokenScanFetchSize(),
@@ -138,18 +135,19 @@ public class Differ implements Serializable
         }
     }
 
-    public Map<String, RangeStats> run() {
+    public Map<KeyspaceTablePair, RangeStats> run() {
         JobMetadataDb.ProgressTracker journal = trackerProvider.getTracker(journalSession, jobId, split);
-        Map<String, DiffJob.TaskStatus> tablesToDiff = filterTables(tables,
-                                                                    split,
-                                                                    journal::getLastStatus,
-                                                                    !specificTokens.isEmpty());
 
-        String metricsPrefix = String.format("%s.%s", srcDiffCluster.clusterId.name(), srcDiffCluster.keyspace);
+        Map<KeyspaceTablePair, DiffJob.TaskStatus> tablesToDiff = filterTables(keyspaceTables,
+                                                                               split,
+                                                                               journal::getLastStatus,
+                                                                               !specificTokens.isEmpty());
+
+        String metricsPrefix = srcDiffCluster.clusterId.name();
         logger.info("Diffing {} for tables {}", split, tablesToDiff);
 
-        for (Map.Entry<String, DiffJob.TaskStatus> tableStatus : tablesToDiff.entrySet()) {
-            final String table = tableStatus.getKey();
+        for (Map.Entry<KeyspaceTablePair, DiffJob.TaskStatus> tableStatus : tablesToDiff.entrySet()) {
+            final KeyspaceTablePair keyspaceTablePair = tableStatus.getKey();
             DiffJob.TaskStatus status = tableStatus.getValue();
             RangeStats diffStats = status.stats;
 
@@ -160,37 +158,37 @@ public class Differ implements Serializable
             BigInteger startToken = status.lastToken == null || isRerun ? split.start : status.lastToken;
             validateRange(startToken, split.end, tokenHelper);
 
-            TableSpec sourceTable = TableSpec.make(table, srcDiffCluster);
-            TableSpec targetTable = TableSpec.make(table, targetDiffCluster);
+            TableSpec sourceTable = TableSpec.make(keyspaceTablePair, srcDiffCluster);
+            TableSpec targetTable = TableSpec.make(keyspaceTablePair, targetDiffCluster);
             validateTableSpecs(sourceTable, targetTable);
 
             DiffContext ctx = new DiffContext(srcDiffCluster,
                                               targetDiffCluster,
-                                              keyspace,
+                                              keyspaceTablePair.keyspace,
                                               sourceTable,
                                               startToken,
                                               split.end,
                                               specificTokens,
                                               reverseReadProbability);
 
-            String timerName = String.format("%s.%s.split_times", metricsPrefix, table);
+            String timerName = String.format("%s.%s.split_times", metricsPrefix, keyspaceTablePair.table);
             try (@SuppressWarnings("unused") Timer.Context timer = metrics.timer(timerName).time()) {
                 diffStats.accumulate(diffTable(ctx,
-                                               (error, token) -> journal.recordError(table, token, error),
-                                               (type, token) -> journal.recordMismatch(table, type, token),
-                                               (stats, token) -> journal.updateStatus(table, stats, token)));
+                                               (error, token) -> journal.recordError(keyspaceTablePair, token, error),
+                                               (type, token) -> journal.recordMismatch(keyspaceTablePair, type, token),
+                                               (stats, token) -> journal.updateStatus(keyspaceTablePair, stats, token)));
 
                 // update the journal with the final state for the table. Use the split's ending token
                 // as the last seen token (even though we may not have actually read any partition for
                 // that token) as this effectively marks the split as done.
-                journal.finishTable(table, diffStats, !isRerun);
+                journal.finishTable(keyspaceTablePair, diffStats, !isRerun);
             }
         }
 
-        Map<String, RangeStats> statsByTable = tablesToDiff.entrySet()
-                                                           .stream()
-                                                           .collect(Collectors.toMap(Map.Entry::getKey,
-                                                                                     e -> e.getValue().stats));
+        Map<KeyspaceTablePair, RangeStats> statsByTable = tablesToDiff.entrySet()
+                                                                      .stream()
+                                                                      .collect(Collectors.toMap(Map.Entry::getKey,
+                                                                                                e -> e.getValue().stats));
         updateMetrics(metricsPrefix, statsByTable);
         return statsByTable;
     }
@@ -226,25 +224,25 @@ public class Differ implements Serializable
     }
 
     @VisibleForTesting
-    static Map<String, DiffJob.TaskStatus> filterTables(Iterable<String> tables,
-                                                        DiffJob.Split split,
-                                                        Function<String, DiffJob.TaskStatus> journal,
-                                                        boolean includeCompleted) {
-        Map<String, DiffJob.TaskStatus> tablesToProcess = new HashMap<>();
-        for (String table : tables) {
-            DiffJob.TaskStatus taskStatus = journal.apply(table);
+    static Map<KeyspaceTablePair, DiffJob.TaskStatus> filterTables(Iterable<KeyspaceTablePair> keyspaceTables,
+                                                                   DiffJob.Split split,
+                                                                   Function<KeyspaceTablePair, DiffJob.TaskStatus> journal,
+                                                                   boolean includeCompleted) {
+        Map<KeyspaceTablePair, DiffJob.TaskStatus> tablesToProcess = new HashMap<>();
+        for (KeyspaceTablePair pair : keyspaceTables) {
+            DiffJob.TaskStatus taskStatus = journal.apply(pair);
             RangeStats diffStats = taskStatus.stats;
             BigInteger lastToken = taskStatus.lastToken;
 
             // When we finish processing a split for a given table, we update the task status in journal
             // to set the last seen token to the split's end token, to indicate that the split is complete.
             if (!includeCompleted && lastToken != null && lastToken.equals(split.end)) {
-                logger.info("Found finished table {} for split {}", table, split);
+                logger.info("Found finished table {} for split {}", pair, split);
             }
             else {
-                tablesToProcess.put(table, diffStats != null
-                                            ? taskStatus
-                                            : new DiffJob.TaskStatus(taskStatus.lastToken, RangeStats.newStats()));
+                tablesToProcess.put(pair, diffStats != null
+                                          ? taskStatus
+                                          : new DiffJob.TaskStatus(taskStatus.lastToken, RangeStats.newStats()));
             }
         }
         return tablesToProcess;
@@ -267,9 +265,9 @@ public class Differ implements Serializable
     }
 
     @VisibleForTesting
-    static Map<String, RangeStats> accumulate(Map<String, RangeStats> stats, Map<String, RangeStats> otherStats)
+    static Map<KeyspaceTablePair, RangeStats> accumulate(Map<KeyspaceTablePair, RangeStats> stats, Map<KeyspaceTablePair, RangeStats> otherStats)
     {
-        for (Map.Entry<String, RangeStats> otherEntry : otherStats.entrySet())
+        for (Map.Entry<KeyspaceTablePair, RangeStats> otherEntry : otherStats.entrySet())
         {
             if (stats.containsKey(otherEntry.getKey()))
                 stats.get(otherEntry.getKey()).accumulate(otherEntry.getValue());
@@ -279,11 +277,12 @@ public class Differ implements Serializable
         return stats;
     }
 
-    private static void updateMetrics(String prefix, Map<String, RangeStats> statsMap)
+    private static void updateMetrics(String prefix, Map<KeyspaceTablePair, RangeStats> statsMap)
     {
-        for (Map.Entry<String, RangeStats> entry : statsMap.entrySet())
+        for (Map.Entry<KeyspaceTablePair, RangeStats> entry : statsMap.entrySet())
         {
-            String qualifier = String.format("%s.%s", prefix, entry.getKey());
+            KeyspaceTablePair keyspaceTablePair = entry.getKey();
+            String qualifier = String.format("%s.%s.%s", prefix, keyspaceTablePair.keyspace, keyspaceTablePair.table);
             RangeStats stats = entry.getValue();
 
             metrics.meter(qualifier + ".partitions_read").mark(stats.getMatchedPartitions() + stats.getOnlyInSource() + stats.getOnlyInTarget() + stats.getMismatchedPartitions());

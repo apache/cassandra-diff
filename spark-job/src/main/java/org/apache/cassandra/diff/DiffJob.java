@@ -67,13 +67,13 @@ public class DiffJob {
     // optional code block to run before a job starts
     private Runnable preJobHook;
     // optional code block to run after a job completes successfully; otherwise, it is not executed.
-    private Consumer<Map<String, RangeStats>> postJobHook;
+    private Consumer<Map<KeyspaceTablePair, RangeStats>> postJobHook;
 
     public void addPreJobHook(Runnable preJobHook) {
         this.preJobHook = preJobHook;
     }
 
-    public void addPostJobHook(Consumer<Map<String, RangeStats>> postJobHook) {
+    public void addPostJobHook(Consumer<Map<KeyspaceTablePair, RangeStats>> postJobHook) {
         this.postJobHook = postJobHook;
     }
 
@@ -132,10 +132,9 @@ public class DiffJob {
                               targetProvider.getClusterName(),
                               targetProvider.toString());
 
-            logger.info("DiffJob {} comparing [{}] in keyspace {} on {} and {}",
+            logger.info("DiffJob {} comparing [{}] on {} and {}",
                         jobId,
-                        String.join(",", params.tables),
-                        params.keyspace,
+                        params.keyspaceTables.stream().map(KeyspaceTablePair::toString).collect(Collectors.joining(",")),
                         sourceProvider,
                         targetProvider);
 
@@ -143,18 +142,18 @@ public class DiffJob {
                 preJobHook.run();
 
             // Run the distributed diff and collate results
-            Map<String, RangeStats> diffStats = sc.parallelize(splits, slices)
-                                                  .map((split) -> new Differ(configuration,
-                                                                             params,
-                                                                             perExecutorRateLimit,
-                                                                             split,
-                                                                             tokenHelper,
-                                                                             sourceProvider,
-                                                                             targetProvider,
-                                                                             metadataProvider,
-                                                                             new TrackerProvider(configuration.metadataOptions().keyspace))
-                                                                  .run())
-                                                  .reduce(Differ::accumulate);
+            Map<KeyspaceTablePair, RangeStats> diffStats = sc.parallelize(splits, slices)
+                                                             .map((split) -> new Differ(configuration,
+                                                                                        params,
+                                                                                        perExecutorRateLimit,
+                                                                                        split,
+                                                                                        tokenHelper,
+                                                                                        sourceProvider,
+                                                                                        targetProvider,
+                                                                                        metadataProvider,
+                                                                                        new TrackerProvider(configuration.metadataOptions().keyspace))
+                                                                                 .run())
+                                                             .reduce(Differ::accumulate);
             // Publish results. This also removes the job from the currently running list
             job.finalizeJob(params.jobId, diffStats);
             logger.info("FINISHED: {}", diffStats);
@@ -181,8 +180,7 @@ public class DiffJob {
             return job.getJobParams(conf.jobId().get());
         } else {
             return new Params(UUID.randomUUID(),
-                              conf.keyspace(),
-                              conf.tables(),
+                              conf.keyspaceTables(),
                               conf.buckets(),
                               conf.splits());
         }
@@ -264,22 +262,20 @@ public class DiffJob {
 
     static class Params implements Serializable {
         public final UUID jobId;
-        public final String keyspace;
-        public final ImmutableList<String> tables;
+        public final ImmutableList<KeyspaceTablePair> keyspaceTables;
         public final int buckets;
         public final int tasks;
 
-        Params(UUID jobId, String keyspace, List<String> tables, int buckets, int tasks) {
+        Params(UUID jobId, List<KeyspaceTablePair> keyspaceTables, int buckets, int tasks) {
             this.jobId = jobId;
-            this.keyspace = keyspace;
-            this.tables = ImmutableList.copyOf(tables);
+            this.keyspaceTables = ImmutableList.copyOf(keyspaceTables);
             this.buckets = buckets;
             this.tasks = tasks;
         }
 
         public String toString() {
-            return String.format("Params: [jobId: %s, keyspace: %s, tables: %s, buckets: %s, tasks: %s]",
-                                 jobId, keyspace, tables.stream().collect(Collectors.joining(",")), buckets, tasks);
+            return String.format("Params: [jobId: %s, keyspaceTables: %s, buckets: %s, tasks: %s]",
+                                 jobId, keyspaceTables.stream().map(KeyspaceTablePair::toString).collect(Collectors.joining(",")), buckets, tasks);
         }
     }
 

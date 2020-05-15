@@ -30,14 +30,14 @@ import static org.apache.cassandra.diff.DiffContext.cqlizedString;
 
 public class TableSpec {
 
-    private final String table;
+    private final KeyspaceTablePair keyspaceTablePair;
     private ImmutableList<ColumnMetadata> clusteringColumns;
     private ImmutableList<ColumnMetadata> regularColumns;
 
 
-    public String getTable()
+    public KeyspaceTablePair getTable()
     {
-        return table;
+        return keyspaceTablePair;
     }
 
 
@@ -55,23 +55,23 @@ public class TableSpec {
      * @param clusteringColumns the clustering columns, retrieved from cluster using the client
      * @param regularColumns the non-primary key columns, retrieved from cluster using the client
      */
-    TableSpec(final String table,
+    TableSpec(final KeyspaceTablePair table,
               final List<ColumnMetadata> clusteringColumns,
               final List<ColumnMetadata> regularColumns) {
-        this.table = table;
+        this.keyspaceTablePair = table;
         this.clusteringColumns = ImmutableList.copyOf(clusteringColumns);
         this.regularColumns = ImmutableList.copyOf(regularColumns);
     }
 
-    public static TableSpec make(String table, DiffCluster diffCluster) {
+    public static TableSpec make(KeyspaceTablePair keyspaceTablePair, DiffCluster diffCluster) {
         final Cluster cluster = diffCluster.cluster;
 
-        final String cqlizedKeyspace = cqlizedString(diffCluster.keyspace);
-        final String cqlizedTable = cqlizedString(table);
+        final String cqlizedKeyspace = cqlizedString(keyspaceTablePair.keyspace);
+        final String cqlizedTable = cqlizedString(keyspaceTablePair.table);
 
         KeyspaceMetadata ksMetadata = cluster.getMetadata().getKeyspace(cqlizedKeyspace);
         if (ksMetadata == null) {
-            throw new IllegalArgumentException(String.format("Keyspace %s not found in %s cluster", diffCluster.keyspace, diffCluster.clusterId));
+            throw new IllegalArgumentException(String.format("Keyspace %s not found in %s cluster", keyspaceTablePair.keyspace, diffCluster.clusterId));
         }
 
         TableMetadata tableMetadata = ksMetadata.getTable(cqlizedTable);
@@ -80,11 +80,11 @@ public class TableSpec {
                                                            .stream()
                                                            .filter(c -> !(clusteringColumns.contains(c)))
                                                            .collect(Collectors.toList());
-        return new TableSpec(tableMetadata.getName(), clusteringColumns, regularColumns);
+        return new TableSpec(KeyspaceTablePair.from(tableMetadata), clusteringColumns, regularColumns);
     }
 
     public boolean equalsNamesOnly(TableSpec other) {
-        return this.table.equals(other.table)
+        return this.keyspaceTablePair.equals(other.keyspaceTablePair)
             && columnNames(this.clusteringColumns).equals(columnNames(other.clusteringColumns))
             && columnNames(this.regularColumns).equals(columnNames(other.regularColumns));
     }
@@ -101,19 +101,19 @@ public class TableSpec {
             return false;
 
         TableSpec other = (TableSpec)o;
-        return this.table.equals(other.table)
+        return this.keyspaceTablePair.equals(other.keyspaceTablePair)
                && this.clusteringColumns.equals(other.clusteringColumns)
                && this.regularColumns.equals(other.regularColumns);
 
     }
 
     public int hashCode() {
-        return Objects.hash(table, clusteringColumns, regularColumns);
+        return Objects.hash(keyspaceTablePair, clusteringColumns, regularColumns);
     }
 
     public String toString() {
         return MoreObjects.toStringHelper(this)
-                          .add("table", table)
+                          .add("table", keyspaceTablePair)
                           .add("clusteringColumns", clusteringColumns)
                           .add("regularColumns", regularColumns)
                           .toString();

@@ -1,6 +1,8 @@
 # List of keyspace.tables to diff
 keyspace_tables:
-  - keyspace1.standard1
+  - ks1.tb1
+  - ks1.tb2
+  - ks2.tb3
 
 # This is how many parts we split the full token range in.
 # Each of these splits is then compared between the clusters

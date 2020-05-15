@@ -20,8 +20,10 @@
 package org.apache.cassandra.diff;
 
 import java.math.BigInteger;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +42,7 @@ public class JobMetadataDb {
         private final int bucket;
         private final String startToken;
         private final String endToken;
-        private final String keyspace;
+        private final String metadataKeyspace;
         private Session session;
 
         private static PreparedStatement updateStmt;
@@ -53,25 +55,25 @@ public class JobMetadataDb {
                                int bucket,
                                BigInteger startToken,
                                BigInteger endToken,
-                               String keyspace,
+                               String metadataKeyspace,
                                Session session) {
             this.jobId = jobId;
             this.bucket = bucket;
             this.startToken = startToken.toString();
             this.endToken = endToken.toString();
-            this.keyspace = keyspace;
+            this.metadataKeyspace = metadataKeyspace;
             this.session = session;
         }
 
         /**
          * Runs on each executor to prepare statements shared across all instances
          */
-        public static void initializeStatements(Session session, String keyspace) {
+        public static void initializeStatements(Session session, String metadataKeyspace) {
             if (updateStmt == null) {
                 updateStmt = session.prepare(String.format("INSERT INTO %s.%s (" +
                                                            " job_id," +
                                                            " bucket," +
-                                                           " table_name," +
+                                                           " keyspace_table_name," +
                                                            " start_token," +
                                                            " end_token," +
                                                            " matched_partitions," +
@@ -84,47 +86,47 @@ public class JobMetadataDb {
                                                            " skipped_partitions," +
                                                            " last_token )" +
                                                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                                           keyspace, Schema.TASK_STATUS));
+                                                           metadataKeyspace, Schema.TASK_STATUS));
             }
             if (mismatchStmt == null) {
                 mismatchStmt = session.prepare(String.format("INSERT INTO %s.%s (" +
                                                              " job_id," +
                                                              " bucket," +
-                                                             " table_name," +
+                                                             " keyspace_table_name," +
                                                              " mismatching_token," +
                                                              " mismatch_type )" +
                                                              "VALUES (?, ?, ?, ?, ?)",
-                                                             keyspace, Schema.MISMATCHES));
+                                                             metadataKeyspace, Schema.MISMATCHES));
             }
             if (updateCompleteStmt == null) {
                 updateCompleteStmt = session.prepare(String.format("UPDATE %s.%s " +
                                                                    " SET completed = completed + 1" +
                                                                    " WHERE job_id = ? " +
                                                                    " AND bucket = ? " +
-                                                                   " AND table_name = ? ",
-                                                                   keyspace, Schema.JOB_STATUS))
+                                                                   " AND keyspace_table_name = ? ",
+                                                                   metadataKeyspace, Schema.JOB_STATUS))
                                             .setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM);
             }
             if (errorSummaryStmt == null) {
                 errorSummaryStmt = session.prepare(String.format("INSERT INTO %s.%s (" +
                                                                  " job_id," +
                                                                  " bucket," +
-                                                                 " table_name," +
+                                                                 " keyspace_table_name," +
                                                                  " start_token," +
                                                                  " end_token)" +
                                                                  " VALUES (?, ?, ?, ?, ?)",
-                                                                 keyspace, Schema.ERROR_SUMMARY));
+                                                                 metadataKeyspace, Schema.ERROR_SUMMARY));
             }
             if (errorDetailStmt == null) {
                 errorDetailStmt = session.prepare(String.format("INSERT INTO %s.%s (" +
                                                                 " job_id," +
                                                                 " bucket," +
-                                                                " table_name," +
+                                                                " keyspace_table_name," +
                                                                 " start_token," +
                                                                 " end_token," +
                                                                 " error_token)" +
                                                                 " VALUES (?, ?, ?, ?, ?, ?)",
-                                                                keyspace, Schema.ERROR_DETAIL));
+                                                                metadataKeyspace, Schema.ERROR_DETAIL));
             }
 
         }
@@ -140,10 +142,11 @@ public class JobMetadataDb {
 
         /**
          *
-         * @param table
+         * @param keyspaceTablePair
          * @return
          */
-        public DiffJob.TaskStatus getLastStatus(String table) {
+        // todo
+        public DiffJob.TaskStatus getLastStatus(KeyspaceTablePair keyspaceTablePair) {
             ResultSet rs = session.execute(String.format("SELECT last_token, " +
                                                          "       matched_partitions, " +
                                                          "       mismatched_partitions, " +
@@ -156,11 +159,11 @@ public class JobMetadataDb {
                                                          " FROM %s.%s " +
                                                          " WHERE job_id = ? " +
                                                          " AND   bucket = ? " +
-                                                         " AND   table_name = ? " +
+                                                         " AND   keyspace_table_name = ? " +
                                                          " AND   start_token = ? " +
                                                          " AND   end_token = ?",
-                                                         keyspace, Schema.TASK_STATUS),
-                                           jobId, bucket, table, startToken, endToken);
+                                                         metadataKeyspace, Schema.TASK_STATUS),
+                                           jobId, bucket, keyspaceTablePair.toCqlValueString(), startToken, endToken);
             Row row = rs.one();
             if (null == row)
                 return DiffJob.TaskStatus.EMPTY;
@@ -185,11 +188,11 @@ public class JobMetadataDb {
          * @param diffStats
          * @param latestToken
          */
-        public void updateStatus(String table, RangeStats diffStats, BigInteger latestToken) {
+        public void updateStatus(KeyspaceTablePair table, RangeStats diffStats, BigInteger latestToken) {
             session.execute(bindUpdateStatement(table, diffStats, latestToken));
         }
 
-        public void recordMismatch(String table, MismatchType type, BigInteger token) {
+        public void recordMismatch(KeyspaceTablePair table, MismatchType type, BigInteger token) {
             logger.info("Detected mismatch in table {}; partition with token {} is {}",
                         table, token, type == MismatchType.PARTITION_MISMATCH
                                       ? " different in source and target clusters"
@@ -204,7 +207,7 @@ public class JobMetadataDb {
          * @param token
          * @param error
          */
-        public void recordError(String table, BigInteger token, Throwable error) {
+        public void recordError(KeyspaceTablePair table, BigInteger token, Throwable error) {
             logger.error(String.format("Encountered error during partition comparison in table %s; " +
                                        "error for partition with token %s", table, token), error);
             BatchStatement batch = new BatchStatement();
@@ -219,41 +222,41 @@ public class JobMetadataDb {
          * @param table
          * @param stats
          */
-        public void finishTable(String table, RangeStats stats, boolean updateCompletedCount) {
+        public void finishTable(KeyspaceTablePair table, RangeStats stats, boolean updateCompletedCount) {
             logger.info("Finishing range [{}, {}] for table {}", startToken, endToken, table);
             // first flush out the last status.
             session.execute(bindUpdateStatement(table, stats, endToken));
             // then update the count of completed tasks
             if (updateCompletedCount)
-                session.execute(updateCompleteStmt.bind(jobId, bucket, table));
+                session.execute(updateCompleteStmt.bind(jobId, bucket, table.toCqlValueString()));
         }
 
-        private Statement bindMismatchesStatement(String table, BigInteger token, String type) {
-            return mismatchStmt.bind(jobId, bucket, table, token.toString(), type)
+        private Statement bindMismatchesStatement(KeyspaceTablePair table, BigInteger token, String type) {
+            return mismatchStmt.bind(jobId, bucket, table.toCqlValueString(), token.toString(), type)
                                .setIdempotent(true);
         }
 
-        private Statement bindErrorSummaryStatement(String table) {
-            return errorSummaryStmt.bind(jobId, bucket, table, startToken, endToken)
+        private Statement bindErrorSummaryStatement(KeyspaceTablePair table) {
+            return errorSummaryStmt.bind(jobId, bucket, table.toCqlValueString(), startToken, endToken)
                                    .setIdempotent(true);
         }
 
-        private Statement bindErrorDetailStatement(String table, BigInteger errorToken) {
-            return errorDetailStmt.bind(jobId, bucket, table, startToken, endToken, errorToken.toString())
+        private Statement bindErrorDetailStatement(KeyspaceTablePair table, BigInteger errorToken) {
+            return errorDetailStmt.bind(jobId, bucket, table.toCqlValueString(), startToken, endToken, errorToken.toString())
                                   .setIdempotent(true);
         }
 
-        private Statement bindUpdateStatement(String table, RangeStats stats, BigInteger token) {
+        private Statement bindUpdateStatement(KeyspaceTablePair table, RangeStats stats, BigInteger token) {
            return bindUpdateStatement(table, stats, token.toString());
         }
 
-        private Statement bindUpdateStatement(String table, RangeStats stats, String token) {
+        private Statement bindUpdateStatement(KeyspaceTablePair table, RangeStats stats, String token) {
             // We don't persist the partition error count from RangeStats as errors
             // are likely to be transient and not data related, so we don't want to
             // accumulate them across runs.
             return updateStmt.bind(jobId,
                                    bucket,
-                                   table,
+                                   table.toCqlValueString(),
                                    startToken,
                                    endToken,
                                    stats.getMatchedPartitions(),
@@ -275,29 +278,32 @@ public class JobMetadataDb {
 
     static class JobLifeCycle {
         final Session session;
-        final String keyspace;
+        final String metadataKeyspace;
 
         public JobLifeCycle(Session session, String metadataKeyspace) {
             this.session = session;
-            this.keyspace = metadataKeyspace;
+            this.metadataKeyspace = metadataKeyspace;
         }
 
         public DiffJob.Params getJobParams(UUID jobId) {
-            ResultSet rs = session.execute(String.format("SELECT keyspace_name, " +
-                                                         "       table_names," +
+            ResultSet rs = session.execute(String.format("SELECT keyspace_table_names," +
                                                          "       buckets," +
                                                          "       total_tasks " +
                                                          "FROM %s.%s " +
                                                          "WHERE job_id = ?",
-                                                         keyspace, Schema.JOB_SUMMARY),
+                                                         metadataKeyspace, Schema.JOB_SUMMARY),
                                            jobId);
             Row row = rs.one();
             if (null == row)
                 return null;
 
+            // keyspace_table_names is encoded as a List<String>. Decode it back to List<KeyspaceTablePair>.
+            List<KeyspaceTablePair> keyspaceTables = row.getList("keyspace_table_names", String.class)
+                                                        .stream()
+                                                        .map(KeyspaceTablePair::new)
+                                                        .collect(Collectors.toList());;
             return new DiffJob.Params(jobId,
-                                      row.getString("keyspace_name"),
-                                      row.getList("table_names", String.class),
+                                      keyspaceTables,
                                       row.getInt("buckets"),
                                       row.getInt("total_tasks"));
         }
@@ -314,7 +320,7 @@ public class JobMetadataDb {
             // The job was previously run, so this could be a re-run to
             // mop up any failed splits so mark it in progress.
             ResultSet rs = session.execute(String.format("INSERT INTO %s.%s (job_id) VALUES (?) IF NOT EXISTS",
-                                                         keyspace, Schema.RUNNING_JOBS),
+                                                         metadataKeyspace, Schema.RUNNING_JOBS),
                                            params.jobId);
             if (!rs.one().getBool("[applied]")) {
                 logger.info("Aborting due to inability to mark job as running. " +
@@ -330,21 +336,19 @@ public class JobMetadataDb {
                                                " job_id," +
                                                " job_start_time," +
                                                " buckets," +
-                                               " keyspace_name," +
-                                               " table_names," +
+                                               " keyspace_table_names," +
                                                " source_cluster_name," +
                                                " source_cluster_desc," +
                                                " target_cluster_name," +
                                                " target_cluster_desc," +
                                                " total_tasks)" +
-                                               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
+                                               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)" +
                                                " IF NOT EXISTS",
-                                               keyspace, Schema.JOB_SUMMARY),
+                                               metadataKeyspace, Schema.JOB_SUMMARY),
                                  params.jobId,
                                  timeUUID,
                                  params.buckets,
-                                 params.keyspace,
-                                 params.tables,
+                                 params.keyspaceTables.stream().map(KeyspaceTablePair::toCqlValueString).collect(Collectors.toList()),
                                  sourceClusterName,
                                  sourceClusterDesc,
                                  targetClusterName,
@@ -355,34 +359,34 @@ public class JobMetadataDb {
             if (rs.one().getBool("[applied]")) {
                 BatchStatement batch = new BatchStatement();
                 batch.add(new SimpleStatement(String.format("INSERT INTO %s.%s (source_cluster_name, job_id) VALUES (?, ?)",
-                                                            keyspace, Schema.SOURCE_CLUSTER_INDEX),
+                                                            metadataKeyspace, Schema.SOURCE_CLUSTER_INDEX),
                                               sourceClusterName, params.jobId));
                 batch.add(new SimpleStatement(String.format("INSERT INTO %s.%s (target_cluster_name, job_id) VALUES (?, ?)",
-                                                            keyspace, Schema.TARGET_CLUSTER_INDEX),
+                                                            metadataKeyspace, Schema.TARGET_CLUSTER_INDEX),
                                               targetClusterName, params.jobId));
                 batch.add(new SimpleStatement(String.format("INSERT INTO %s.%s (keyspace_name, job_id) VALUES (?, ?)",
-                                                            keyspace, Schema.KEYSPACE_INDEX),
-                                              keyspace, params.jobId));
+                                                            metadataKeyspace, Schema.KEYSPACE_INDEX),
+                                              metadataKeyspace, params.jobId));
                 batch.add(new SimpleStatement(String.format("INSERT INTO %s.%s (job_start_date, job_start_hour, job_start_time, job_id) " +
                                                             "VALUES ('%s', ?, ?, ?)",
-                                                            keyspace, Schema.JOB_START_INDEX, startDateTime.toString("yyyy-MM-dd")),
+                                                            metadataKeyspace, Schema.JOB_START_INDEX, startDateTime.toString("yyyy-MM-dd")),
                                               startDateTime.getHourOfDay(), timeUUID, params.jobId));
                 session.execute(batch);
             }
         }
 
-        public void finalizeJob(UUID jobId, Map<String, RangeStats> results) {
+        public void finalizeJob(UUID jobId, Map<KeyspaceTablePair, RangeStats> results) {
             logger.info("Finalizing job status");
 
             markNotRunning(jobId);
 
             BatchStatement batch = new BatchStatement();
-            for (Map.Entry<String, RangeStats> result : results.entrySet()) {
-                String table = result.getKey();
+            for (Map.Entry<KeyspaceTablePair, RangeStats> result : results.entrySet()) {
+                KeyspaceTablePair table = result.getKey();
                 RangeStats stats = result.getValue();
                 session.execute(String.format("INSERT INTO %s.%s (" +
                                               "  job_id," +
-                                              "  table_name," +
+                                              "  keyspace_table_name," +
                                               "  matched_partitions," +
                                               "  mismatched_partitions," +
                                               "  partitions_only_in_source," +
@@ -392,9 +396,9 @@ public class JobMetadataDb {
                                               "  mismatched_values," +
                                               "  skipped_partitions) " +
                                               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                              keyspace, Schema.JOB_RESULTS),
+                                              metadataKeyspace, Schema.JOB_RESULTS),
                                 jobId,
-                                table,
+                                table.toCqlValueString(),
                                 stats.getMatchedPartitions(),
                                 stats.getMismatchedPartitions(),
                                 stats.getOnlyInSource(),
@@ -414,18 +418,18 @@ public class JobMetadataDb {
                 logger.info("Marking job {} as not running", jobId);
 
                 ResultSet rs = session.execute(String.format("DELETE FROM %s.%s WHERE job_id = ? IF EXISTS",
-                        keyspace, Schema.RUNNING_JOBS),
+                                                             metadataKeyspace, Schema.RUNNING_JOBS),
                         jobId);
                 if (!rs.one().getBool("[applied]"))
                 {
                     logger.warn("Non-fatal: Unable to mark job %s as not running, check logs for errors " +
-                                    "during initialization as there may be no entry for this job in the {} table",
+                                    "during initialization as there may be no entry for this job {} in the {} table",
                             jobId, Schema.RUNNING_JOBS);
                 }
             } catch (Exception e) {
                 // Because this is called from another exception handler, we don't want to lose the original exception
                 // just because we may not have been able to mark the job as not running. Just log here
-                logger.error("Could not mark job {} as not running.", e);
+                logger.error("Could not mark job {} as not running.", jobId, e);
             }
         }
     }
@@ -436,7 +440,7 @@ public class JobMetadataDb {
         private static final String TASK_STATUS_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                          " job_id uuid," +
                                                          " bucket int," +
-                                                         " table_name text," +
+                                                         " keyspace_table_name text," +
                                                          " start_token varchar," +
                                                          " end_token varchar," +
                                                          " matched_partitions bigint," +
@@ -448,7 +452,7 @@ public class JobMetadataDb {
                                                          " mismatched_values bigint," +
                                                          " skipped_partitions bigint," +
                                                          " last_token varchar," +
-                                                         " PRIMARY KEY((job_id, bucket), table_name, start_token, end_token))" +
+                                                         " PRIMARY KEY((job_id, bucket), keyspace_table_name, start_token, end_token))" +
                                                          " WITH default_time_to_live = %s";
 
         public static final String JOB_SUMMARY = "job_summary";
@@ -456,8 +460,7 @@ public class JobMetadataDb {
                                                          " job_id uuid," +
                                                          " job_start_time timeuuid," +
                                                          " buckets int," +
-                                                         " keyspace_name text," +
-                                                         " table_names frozen<list<text>>," +
+                                                         " keyspace_table_names frozen<list<text>>," +
                                                          " source_cluster_name text," +
                                                          " source_cluster_desc text," +
                                                          " target_cluster_name text," +
@@ -469,7 +472,7 @@ public class JobMetadataDb {
         public static final String JOB_RESULTS = "job_results";
         private static final String JOB_RESULTS_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                          " job_id uuid," +
-                                                         " table_name text," +
+                                                         " keyspace_table_name text," +
                                                          " matched_partitions bigint," +
                                                          " mismatched_partitions bigint," +
                                                          " partitions_only_in_source bigint," +
@@ -478,46 +481,46 @@ public class JobMetadataDb {
                                                          " matched_values bigint," +
                                                          " mismatched_values bigint," +
                                                          " skipped_partitions bigint," +
-                                                         " PRIMARY KEY(job_id, table_name))" +
+                                                         " PRIMARY KEY(job_id, keyspace_table_name))" +
                                                          " WITH default_time_to_live = %s";
 
         public static final String JOB_STATUS = "job_status";
         private static final String JOB_STATUS_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                         " job_id uuid," +
                                                         " bucket int," +
-                                                        " table_name text," +
+                                                        " keyspace_table_name text," +
                                                         " completed counter," +
-                                                        " PRIMARY KEY ((job_id, bucket), table_name))";
+                                                        " PRIMARY KEY ((job_id, bucket), keyspace_table_name))";
 
         public static final String MISMATCHES = "mismatches";
         private static final String MISMATCHES_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                         " job_id uuid," +
                                                         " bucket int," +
-                                                        " table_name text, " +
+                                                        " keyspace_table_name text, " +
                                                         " mismatching_token varchar, " +
                                                         " mismatch_type text, " +
-                                                        " PRIMARY KEY ((job_id, bucket), table_name, mismatching_token))" +
+                                                        " PRIMARY KEY ((job_id, bucket), keyspace_table_name, mismatching_token))" +
                                                         " WITH default_time_to_live = %s";
 
         public static final String ERROR_SUMMARY = "task_errors";
         private static final String ERROR_SUMMARY_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                            " job_id uuid," +
                                                            " bucket int," +
-                                                           " table_name text," +
+                                                           " keyspace_table_name text," +
                                                            " start_token varchar," +
                                                            " end_token varchar," +
-                                                           " PRIMARY KEY ((job_id, bucket), table_name, start_token, end_token))" +
+                                                           " PRIMARY KEY ((job_id, bucket), keyspace_table_name, start_token, end_token))" +
                                                            " WITH default_time_to_live = %s";
 
         public static final String ERROR_DETAIL = "partition_errors";
         private static final String ERROR_DETAIL_SCHEMA = "CREATE TABLE IF NOT EXISTS %s.%s (" +
                                                           " job_id uuid," +
                                                           " bucket int," +
-                                                          " table_name text," +
+                                                          " keyspace_table_name text," +
                                                           " start_token varchar," +
                                                           " end_token varchar," +
                                                           " error_token varchar," +
-                                                          " PRIMARY KEY ((job_id, bucket, table_name, start_token, end_token), error_token))" +
+                                                          " PRIMARY KEY ((job_id, bucket, keyspace_table_name, start_token, end_token), error_token))" +
                                                           " WITH default_time_to_live = %s";
 
         public static final String SOURCE_CLUSTER_INDEX = "source_cluster_index";

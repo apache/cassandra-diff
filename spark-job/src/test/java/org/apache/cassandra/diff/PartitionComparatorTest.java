@@ -221,7 +221,7 @@ public class PartitionComparatorTest {
     }
 
     TableSpec spec(String table, List<String> clusteringColumns, List<String> regularColumns) {
-        return new TableSpec(table, columns(clusteringColumns), columns(regularColumns));
+        return new TableSpec(new KeyspaceTablePair("ks", table), columns(clusteringColumns), columns(regularColumns));
     }
 
     List<ColumnMetadata> columns(List<String> names) {
