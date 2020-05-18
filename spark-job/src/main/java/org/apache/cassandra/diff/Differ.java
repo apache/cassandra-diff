@@ -23,24 +23,25 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
 import java.math.BigInteger;
-import java.util.*;
-import java.util.function.BiFunction;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.function.BiConsumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Verify;
-import com.google.common.util.concurrent.*;
-
+import com.google.common.util.concurrent.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.Session;
-
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.Session;
 
 public class Differ implements Serializable
 {

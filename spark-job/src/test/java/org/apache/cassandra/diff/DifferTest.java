@@ -22,17 +22,10 @@ package org.apache.cassandra.diff;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import com.google.common.base.VerifyException;
-import org.junit.Test;
-
 import com.google.common.collect.Lists;
-
-import org.apache.cassandra.diff.DiffJob;
-import org.apache.cassandra.diff.Differ;
-import org.apache.cassandra.diff.RangeStats;
-import org.apache.cassandra.diff.TokenHelper;
+import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -75,7 +68,6 @@ public class DifferTest {
         // * t2 is started and has reported some progress, but has not completed
         // * t3 has not reported any progress
         DiffJob.Split split = new DiffJob.Split(1, 1, BigInteger.ONE, BigInteger.TEN);
-        //todo
         Iterable<KeyspaceTablePair> tables = Lists.newArrayList(ksTbl("t1"), ksTbl("t2"), ksTbl("t3"));
         Function<KeyspaceTablePair, DiffJob.TaskStatus> journal = (keyspaceTable) -> {
             switch (keyspaceTable.table) {

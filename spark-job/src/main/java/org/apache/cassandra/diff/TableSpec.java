@@ -19,12 +19,17 @@
 
 package org.apache.cassandra.diff;
 
-import com.datastax.driver.core.*;
-import java.util.*;
+import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
+
+import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.KeyspaceMetadata;
+import com.datastax.driver.core.TableMetadata;
 
 import static org.apache.cassandra.diff.DiffContext.cqlizedString;
 

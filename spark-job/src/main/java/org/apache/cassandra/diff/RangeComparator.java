@@ -20,11 +20,13 @@
 package org.apache.cassandra.diff;
 
 import java.math.BigInteger;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Iterator;
+import java.util.concurrent.Phaser;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.*;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.google.common.base.Verify;
 import org.slf4j.Logger;
