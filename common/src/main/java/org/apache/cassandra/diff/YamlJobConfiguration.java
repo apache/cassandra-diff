@@ -19,8 +19,7 @@
 
 package org.apache.cassandra.diff;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.InputStream;
 import java.math.BigInteger;
 import java.util.HashSet;
 import java.util.List;
@@ -35,6 +34,7 @@ import org.yaml.snakeyaml.constructor.CustomClassLoaderConstructor;
 public class YamlJobConfiguration implements JobConfiguration {
     public int splits = 10000;
     public List<KeyspaceTablePair> keyspace_tables;
+    public List<String> disallowed_keyspaces;
     public int buckets = 100;
     public int rate_limit = 10000;
     public String job_id = null;
@@ -48,18 +48,18 @@ public class YamlJobConfiguration implements JobConfiguration {
     public String specific_tokens = null;
     public String disallowed_tokens = null;
 
-    public static YamlJobConfiguration load(String file) {
+    public static YamlJobConfiguration load(InputStream inputStream) {
         Yaml yaml = new Yaml(new CustomClassLoaderConstructor(YamlJobConfiguration.class,
                                                               Thread.currentThread().getContextClassLoader()));
-        try {
-            return yaml.loadAs(new FileInputStream(file), YamlJobConfiguration.class);
-        } catch (FileNotFoundException e) {
-            throw new RuntimeException(e);
-        }
+        return yaml.loadAs(inputStream, YamlJobConfiguration.class);
     }
 
     public List<KeyspaceTablePair> keyspaceTables() {
         return keyspace_tables;
+    }
+
+    public List<String> disallowedKeyspaces() {
+        return disallowed_keyspaces;
     }
 
     public int splits() {
