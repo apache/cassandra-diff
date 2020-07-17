@@ -3,6 +3,11 @@
 ## Configuration
 See `spark-job/localconfig.yaml` for an example config.
 
+See `spark-job/localconfig-multi-keyspaces.yaml` for an example config that compares tables under multiple keyspaces.
+
+See `spark-job/localconfig-auto-discover.yaml` for an example config that auto discovers all user tables to compare. 
+The auto discover mode excludes all system keyspaces and any keyspaces defined at `disallowed_keyspaces` in the yaml file.
+
 ## Custom cluster providers
 To make it easy to run in any environment the cluster providers are pluggable - there are two interfaces to implement.
 First, the `ClusterProvider` interface is used to create a connection to the clusters, and it is configured using
@@ -50,6 +55,8 @@ $ docker exec cas-tgt cassandra-stress write n=1k -schema keyspace="keyspace2"
 $ spark-submit --verbose --files ./spark-job/localconfig.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig.yaml
 # If rows are created in "keyspace2", you can run pick up the localconfig-multi-keyspaces.yaml to compare data across multiple keyspaces! See the command below.
 # $ spark-submit --verbose --files ./spark-job/localconfig-multi-keyspaces.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig-multi-keyspaces.yaml
+# To use the auto discover mode, you can run the job with localconfig-auto-discover.yaml, which has the keyspace_tables field removed. 
+# $ spark-submit --verbose --files ./spark-job/localconfig-auto-discover.yaml --class org.apache.cassandra.diff.DiffJob spark-uberjar/target/spark-uberjar-0.2-SNAPSHOT.jar localconfig-auto-discover.yaml
 # ... logs
 INFO  DiffJob:124 - FINISHED: {standard1=Matched Partitions - 1000, Mismatched Partitions - 0, Partition Errors - 0, Partitions Only In Source - 0, Partitions Only In Target - 0, Skipped Partitions - 0, Matched Rows - 1000, Matched Values - 6000, Mismatched Values - 0 }
 ## start api-server:

@@ -20,13 +20,46 @@
 package org.apache.cassandra.diff;
 
 import java.io.Serializable;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public interface JobConfiguration extends Serializable {
-    List<KeyspaceTablePair> keyspaceTables();
+
+    default boolean shouldAutoDiscoverTables() {
+        List<KeyspaceTablePair> list = keyspaceTables();
+        return null == list || list.isEmpty();
+    }
+
+    /**
+     * @return qualified tables defined in the configuration. Return null if not defined.
+     */
+    @Nullable List<KeyspaceTablePair> keyspaceTables();
+
+    /**
+     * @return a list of keyspace names that are disallowed for comparison. Return null if not defined.
+     */
+    @Nullable List<String> disallowedKeyspaces();
+
+    /**
+     * @return filtered qualified tables based on the keyspaceTables and disallowedKeypsaces defined.
+     *         Return null if keyspaceTables is not defined.
+     */
+    @Nullable default List<KeyspaceTablePair> filteredKeyspaceTables() {
+        List<String> disallowedKeyspaces = disallowedKeyspaces();
+        List<KeyspaceTablePair> list = keyspaceTables();
+        if (disallowedKeyspaces != null && !disallowedKeyspaces.isEmpty() && list != null && !list.isEmpty()) {
+            Set<String> filter = new HashSet<>(disallowedKeyspaces);
+            return list.stream().filter(t -> !filter.contains(t.keyspace)).collect(Collectors.toList());
+        } else {
+            return list;
+        }
+    }
 
     int splits();
 

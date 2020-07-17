@@ -19,6 +19,8 @@
 
 package org.apache.cassandra.diff;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.Serializable;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -32,6 +34,7 @@ import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,14 +57,14 @@ import org.apache.spark.sql.SparkSession;
 public class DiffJob {
     private static final Logger logger = LoggerFactory.getLogger(DiffJob.class);
 
-    public static void main(String ... args) {
+    public static void main(String ... args) throws FileNotFoundException {
         if (args.length == 0) {
             System.exit(-1);
         }
         SparkSession spark = SparkSession.builder().appName("cassandra-diff").getOrCreate();
         JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());
         String configFile = SparkFiles.get(args[0]);
-        YamlJobConfiguration configuration = YamlJobConfiguration.load(configFile);
+        YamlJobConfiguration configuration = YamlJobConfiguration.load(new FileInputStream(configFile));
         DiffJob diffJob = new DiffJob();
         diffJob.run(configuration, sc);
         spark.stop();
@@ -87,15 +90,32 @@ public class DiffJob {
         ClusterProvider targetProvider = ClusterProvider.getProvider(configuration.clusterConfig("target"), "target");
         String sourcePartitioner;
         String targetPartitioner;
+        List<KeyspaceTablePair> tablesToCompare = configuration.filteredKeyspaceTables();
         try (Cluster sourceCluster = sourceProvider.getCluster();
              Cluster targetCluster = targetProvider.getCluster()) {
             sourcePartitioner = sourceCluster.getMetadata().getPartitioner();
             targetPartitioner = targetCluster.getMetadata().getPartitioner();
+
+            if (!sourcePartitioner.equals(targetPartitioner)) {
+                throw new IllegalStateException(String.format("Cluster partitioners do not match; Source: %s, Target: %s,",
+                                                              sourcePartitioner, targetPartitioner));
+            }
+
+            if (configuration.shouldAutoDiscoverTables()) {
+                Schema sourceSchema = new Schema(sourceCluster.getMetadata(), configuration);
+                Schema targetSchema = new Schema(targetCluster.getMetadata(), configuration);
+                Schema commonSchema = sourceSchema.intersect(targetSchema);
+                if (commonSchema.size() != sourceSchema.size()) {
+                    Pair<Set<KeyspaceTablePair>, Set<KeyspaceTablePair>> difference = Schema.difference(sourceSchema, targetSchema);
+                    logger.warn("Found tables that only exist in either source or target cluster. Ignoring those tables for comparision. " +
+                                "Distinct tables in source cluster: {}. " +
+                                "Distinct tables in target cluster: {}",
+                                difference.getLeft(), difference.getRight());
+                }
+                tablesToCompare = commonSchema.toQualifiedTableList();
+            }
         }
-        if (!sourcePartitioner.equals(targetPartitioner)) {
-            throw new IllegalStateException(String.format("Cluster partitioners do not match; Source: %s, Target: %s,",
-                                                          sourcePartitioner, targetPartitioner));
-        }
+
         TokenHelper tokenHelper = TokenHelper.forPartitioner(sourcePartitioner);
 
         logger.info("Configuring job metadata store");
@@ -111,7 +131,7 @@ public class DiffJob {
             // Job params, which once a job is created cannot be modified in subsequent re-runs
             logger.info("Creating or retrieving job parameters");
             job = new JobMetadataDb.JobLifeCycle(metadataSession, metadataOptions.keyspace);
-            Params params = getJobParams(job, configuration);
+            Params params = getJobParams(job, configuration, tablesToCompare);
             logger.info("Job Params: {}", params);
             if (null == params)
                 throw new RuntimeException("Unable to initialize job params");
@@ -178,12 +198,12 @@ public class DiffJob {
         }
     }
 
-    private static Params getJobParams(JobMetadataDb.JobLifeCycle job, JobConfiguration conf) {
+    private static Params getJobParams(JobMetadataDb.JobLifeCycle job, JobConfiguration conf, List<KeyspaceTablePair> keyspaceTables) {
         if (conf.jobId().isPresent()) {
             return job.getJobParams(conf.jobId().get());
         } else {
             return new Params(UUID.randomUUID(),
-                              conf.keyspaceTables(),
+                              keyspaceTables,
                               conf.buckets(),
                               conf.splits());
         }

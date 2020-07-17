@@ -19,6 +19,7 @@
 
 package org.apache.cassandra.diff.api;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 
 import com.google.common.collect.Lists;
@@ -35,7 +36,7 @@ public class DiffAPIServer {
         String filename = args[0];
         JAXRSServerFactoryBean factoryBean = new JAXRSServerFactoryBean();
 
-        DiffJobsResource diffResource = new DiffJobsResource(YamlJobConfiguration.load(filename));
+        DiffJobsResource diffResource = new DiffJobsResource(YamlJobConfiguration.load(new FileInputStream(filename)));
         factoryBean.setResourceProviders(Lists.newArrayList(new SingletonResourceProvider(diffResource),
                                                             new SingletonResourceProvider(new HealthResource())));
         factoryBean.setAddress("http://localhost:8089/");
