@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -15,7 +16,7 @@ import com.datastax.driver.core.TableMetadata;
 
 public class Schema {
     // Filter out all system keyspaces.
-    private static final Set<String> DEFAULT_FILETER = ImmutableSet.of(
+    private static final Set<String> DEFAULT_FILTER = ImmutableSet.of(
         "system", "system_schema", "system_traces", "system_auth", "system_distributed", "system_virtual_schema", "system_views"
     );
 
@@ -54,12 +55,13 @@ public class Schema {
         return qualifiedTables.size();
     }
 
-    private Set<String> getKeyspaceFilter(JobConfiguration configuration) {
+    @VisibleForTesting
+    public static Set<String> getKeyspaceFilter(JobConfiguration configuration) {
         List<String> disallowedKeyspaces = configuration.disallowedKeyspaces();
         if (null == disallowedKeyspaces) {
-            return DEFAULT_FILETER;
+            return DEFAULT_FILTER;
         } else {
-            return ImmutableSet.copyOf(disallowedKeyspaces);
+            return Sets.union(DEFAULT_FILTER, ImmutableSet.copyOf(disallowedKeyspaces));
         }
     }
 }

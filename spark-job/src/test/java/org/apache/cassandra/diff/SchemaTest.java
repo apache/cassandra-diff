@@ -1,6 +1,11 @@
 package org.apache.cassandra.diff;
 
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.Assert;
@@ -10,6 +15,20 @@ public class SchemaTest {
     private static final KeyspaceTablePair kt1 = new KeyspaceTablePair("ks", "tbl1");
     private static final KeyspaceTablePair kt2 = new KeyspaceTablePair("ks", "tbl2");
     private static final KeyspaceTablePair kt3 = new KeyspaceTablePair("ks", "tbl3");
+
+    private class MockConfig extends AbstractMockJobConfiguration {
+        private List<String> disallowedKeyspaces;
+
+        MockConfig(List<String> disallowedKeyspaces) {
+            this.disallowedKeyspaces = disallowedKeyspaces;
+        }
+
+        @Nullable
+        @Override
+        public List<String> disallowedKeyspaces() {
+            return disallowedKeyspaces;
+        }
+    }
 
     @Test
     public void testIntersectSameInstance() {
@@ -33,5 +52,24 @@ public class SchemaTest {
         Schema schema = new Schema(ImmutableSet.of(kt1, kt2, kt3));
         Assert.assertEquals(3, schema.size());
         Assert.assertEquals(ImmutableSet.of(kt1, kt2, kt3), ImmutableSet.copyOf(schema.toQualifiedTableList()));
+    }
+
+    @Test
+    public void testGetKeyspaceFilterWithDefault() {
+        MockConfig config = new MockConfig(null);
+        Set<String> filter = Schema.getKeyspaceFilter(config);
+        Assert.assertFalse("Default fileter should not be empty", filter.isEmpty());
+    }
+
+    @Test
+    public void testGetKeyspaceFilterWithAdditions() {
+        List<String> disallowed = Arrays.asList("ks1, ks2");
+        MockConfig configWithDefault = new MockConfig(null);
+        MockConfig configWithAddition = new MockConfig(disallowed);
+        Set<String> defaultFilter = Schema.getKeyspaceFilter(configWithDefault);
+        Set<String> filter = Schema.getKeyspaceFilter(configWithAddition);
+        Assert.assertFalse("Filter should not be not empty", filter.isEmpty());
+        Assert.assertEquals("Filter with additions should be larger than the default", disallowed.size(), filter.size() - defaultFilter.size());
+        disallowed.forEach(ks -> Assert.assertTrue("Filter should contain the additional disallowed keyspace.", filter.contains(ks)));
     }
 }
