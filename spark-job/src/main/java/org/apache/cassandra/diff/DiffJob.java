@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +106,11 @@ public class DiffJob {
                 Schema targetSchema = new Schema(targetCluster.getMetadata(), configuration);
                 Schema commonSchema = sourceSchema.intersect(targetSchema);
                 if (commonSchema.size() != sourceSchema.size()) {
-                    logger.warn("Found tables that only exist in either source or target cluster. Ignoring those tables for comparision. ");
+                    Pair<Set<KeyspaceTablePair>, Set<KeyspaceTablePair>> difference = Schema.difference(sourceSchema, targetSchema);
+                    logger.warn("Found tables that only exist in either source or target cluster. Ignoring those tables for comparision. " +
+                                "Distinct tables in source cluster: {}. " +
+                                "Distinct tables in target cluster: {}",
+                                difference.getLeft(), difference.getRight());
                 }
                 tablesToCompare = commonSchema.toQualifiedTableList();
             }

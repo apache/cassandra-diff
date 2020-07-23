@@ -10,6 +10,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.lang3.tuple.Pair;
+
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.TableMetadata;
@@ -63,5 +65,12 @@ public class Schema {
         } else {
             return Sets.union(DEFAULT_FILTER, ImmutableSet.copyOf(disallowedKeyspaces));
         }
+    }
+
+    // Returns the distinct tables from the according shcema.
+    // The left contains the distinct tables from schema `first`
+    // The right contains the distinct tables from schema `second`
+    public static Pair<Set<KeyspaceTablePair>, Set<KeyspaceTablePair>> difference(Schema first, Schema second) {
+        return Pair.of(Sets.difference(first.qualifiedTables, second.qualifiedTables), Sets.difference(second.qualifiedTables, first.qualifiedTables));
     }
 }

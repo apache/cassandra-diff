@@ -8,6 +8,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.tuple.Pair;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -71,5 +72,14 @@ public class SchemaTest {
         Assert.assertFalse("Filter should not be not empty", filter.isEmpty());
         Assert.assertEquals("Filter with additions should be larger than the default", disallowed.size(), filter.size() - defaultFilter.size());
         disallowed.forEach(ks -> Assert.assertTrue("Filter should contain the additional disallowed keyspace.", filter.contains(ks)));
+    }
+
+    @Test
+    public void testSchemaDifference() {
+        Schema first = new Schema(ImmutableSet.of(kt1, kt2));
+        Schema second = new Schema(ImmutableSet.of(kt2, kt3));
+        Pair<Set<KeyspaceTablePair>, Set<KeyspaceTablePair>> difference = Schema.difference(first, second);
+        Assert.assertTrue("Should contain the distinct table in first schema", difference.getLeft().contains(kt1));
+        Assert.assertTrue("Should contain the distinct table in second schema", difference.getRight().contains(kt3));
     }
 }
