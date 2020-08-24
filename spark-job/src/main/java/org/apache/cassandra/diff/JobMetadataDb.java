@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -131,8 +132,9 @@ public class JobMetadataDb {
                                                                 " qualified_table_name," +
                                                                 " start_token," +
                                                                 " end_token," +
-                                                                " error_token)" +
-                                                                " VALUES (?, ?, ?, ?, ?, ?)",
+                                                                " error_token," +
+                                                                " error_source)" +
+                                                                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                                                                 metadataKeyspace, Schema.ERROR_DETAIL));
             }
 
@@ -218,7 +220,15 @@ public class JobMetadataDb {
                                        "error for partition with token %s", table, token), error);
             BatchStatement batch = new BatchStatement();
             batch.add(bindErrorSummaryStatement(table));
-            batch.add(bindErrorDetailStatement(table, token));
+            DiffCluster.Type exceptionSource = null;
+            int maxRetrace = 10; // In case there is a loop, we do not want to loop forever or throw. So just limit the number of retracing.
+            for (Throwable t = error; t.getCause() != null && maxRetrace > 0; t = t.getCause(), maxRetrace--) {
+                if (t instanceof ClusterSourcedException) {
+                    exceptionSource = ((ClusterSourcedException) t).exceptionSource;
+                    break;
+                }
+            }
+            batch.add(bindErrorDetailStatement(table, token, exceptionSource));
             batch.setIdempotent(true);
             session.execute(batch);
         }
@@ -247,8 +257,9 @@ public class JobMetadataDb {
                                    .setIdempotent(true);
         }
 
-        private Statement bindErrorDetailStatement(KeyspaceTablePair table, BigInteger errorToken) {
-            return errorDetailStmt.bind(jobId, bucket, table.toCqlValueString(), startToken, endToken, errorToken.toString())
+        private Statement bindErrorDetailStatement(KeyspaceTablePair table, BigInteger errorToken, DiffCluster.Type exceptionSource) {
+            String errorSource = exceptionSource == null ? "" : exceptionSource.name();
+            return errorDetailStmt.bind(jobId, bucket, table.toCqlValueString(), startToken, endToken, errorToken.toString(), errorSource)
                                   .setIdempotent(true);
         }
 
@@ -526,6 +537,7 @@ public class JobMetadataDb {
                                                           " start_token varchar," +
                                                           " end_token varchar," +
                                                           " error_token varchar," +
+                                                          " error_source varchar," +
                                                           " PRIMARY KEY ((job_id, bucket, qualified_table_name, start_token, end_token), error_token))" +
                                                           " WITH default_time_to_live = %s";
 

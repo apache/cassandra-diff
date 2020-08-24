@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.Row;
+import org.apache.cassandra.diff.DiffCluster.Type;
 
 public class PartitionComparator implements Callable<PartitionStats> {
 
@@ -53,10 +54,10 @@ public class PartitionComparator implements Callable<PartitionStats> {
             return partitionStats;
         }
 
-        while (source.hasNext() && target.hasNext()) {
+        while (hasNextRow(Type.SOURCE) && hasNextRow(Type.TARGET)) {
 
-            Row sourceRow = source.next();
-            Row targetRow = target.next();
+            Row sourceRow = getNextRow(Type.SOURCE);
+            Row targetRow = getNextRow(Type.TARGET);
 
             // if primary keys don't match don't proceed any further, just mark the
             // partition as mismatched and be done
@@ -73,10 +74,24 @@ public class PartitionComparator implements Callable<PartitionStats> {
         }
 
         // if one of the iterators isn't exhausted, then there's a mismatch at the partition level
-        if (source.hasNext() || target.hasNext())
+        if (hasNextRow(Type.SOURCE) || hasNextRow(Type.TARGET))
             partitionStats.allClusteringsMatch = false;
 
         return partitionStats;
+    }
+
+    private boolean hasNextRow(Type type) {
+        Callable<Boolean> hasNext = () -> type == Type.SOURCE
+                                          ? source.hasNext()
+                                          : target.hasNext();
+        return ClusterSourcedException.catches(type, hasNext);
+    }
+
+    private Row getNextRow(Type type) {
+        Callable<Row> next = () -> type == Type.SOURCE
+                                   ? source.next()
+                                   : target.next();
+        return ClusterSourcedException.catches(type, next);
     }
 
     private boolean clusteringsEqual(Row source, Row target) {

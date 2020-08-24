@@ -125,8 +125,7 @@ public class RangeComparator {
                         // unavailables occurring when performing the initial query to read the full partition.
                         // Errors thrown when paging through the partition in comparisonTask will be handled by
                         // the onError callback.
-                        rangeStats.partitionError();
-                        errorReporter.accept(t, token);
+                        recordError(rangeStats, token, errorReporter, t);
                     } finally {
                         // if the cluster has been shutdown because the task failed the underlying iterators
                         // of partition keys will return hasNext == false
@@ -224,10 +223,15 @@ public class RangeComparator {
     private Consumer<Throwable> onError(final RangeStats rangeStats,
                                         final BigInteger currentToken,
                                         final BiConsumer<Throwable, BigInteger> errorReporter) {
-        return (error) -> {
-            rangeStats.partitionError();
-            errorReporter.accept(error, currentToken);
-        };
+        return (error) -> recordError(rangeStats, currentToken, errorReporter, error);
+    }
+
+    private void recordError(final RangeStats rangeStats,
+                             final BigInteger currentToken,
+                             final BiConsumer<Throwable, BigInteger> errorReporter,
+                             final Throwable error) {
+        rangeStats.partitionError();
+        errorReporter.accept(error, currentToken);
     }
 }
 

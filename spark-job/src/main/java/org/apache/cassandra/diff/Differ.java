@@ -28,6 +28,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 
 public class Differ implements Serializable
@@ -208,9 +210,9 @@ public class Differ implements Serializable
         final Function<PartitionKey, PartitionComparator> partitionTaskProvider =
             (key) -> {
                 boolean reverse = context.shouldReverse();
-                return new PartitionComparator(context.table,
-                                               context.source.getPartition(context.table, key, reverse),
-                                               context.target.getPartition(context.table, key, reverse));
+                Iterator<Row> source = fetchRows(context, key, reverse, DiffCluster.Type.SOURCE);
+                Iterator<Row> target = fetchRows(context, key, reverse, DiffCluster.Type.TARGET);
+                return new PartitionComparator(context.table, source, target);
             };
 
         RangeComparator rangeComparator = new RangeComparator(context,
@@ -222,6 +224,13 @@ public class Differ implements Serializable
         final RangeStats tableStats = rangeComparator.compare(sourceKeys, targetKeys, partitionTaskProvider);
         logger.debug("Table [{}] stats - ({})", context.table.getTable(), tableStats);
         return tableStats;
+    }
+
+    private Iterator<Row> fetchRows(DiffContext context, PartitionKey key, boolean shouldReverse, DiffCluster.Type type) {
+        Callable<Iterator<Row>> rows = () -> type == DiffCluster.Type.SOURCE
+                                             ? context.source.getPartition(context.table, key, shouldReverse)
+                                             : context.target.getPartition(context.table, key, shouldReverse);
+        return ClusterSourcedException.catches(type, rows);
     }
 
     @VisibleForTesting
