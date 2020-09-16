@@ -20,6 +20,7 @@
 package org.apache.cassandra.diff;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +87,17 @@ public interface JobConfiguration extends Serializable {
 
     MetadataKeyspaceOptions metadataOptions();
 
+    /**
+     * Contains the options that specify the retry strategy for retrieving data at the application level.
+     * Note that it is different than cassandra java driver's {@link com.datastax.driver.core.policies.RetryPolicy},
+     * which is evaluated at the Netty worker threads.
+     */
+    RetryOptions retryOptions();
+
     Map<String, String> clusterConfig(String identifier);
+
+    // Just an alias
+    public static class RetryOptions extends HashMap<String, String> {
+    }
 
 }

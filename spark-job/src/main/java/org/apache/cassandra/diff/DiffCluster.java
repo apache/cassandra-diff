@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.AbstractIterator;
@@ -81,6 +80,7 @@ public class DiffCluster implements AutoCloseable
     private final int tokenScanFetchSize;
     private final int partitionReadFetchSize;
     private final int readTimeoutMillis;
+    private final RetryStrategyProvider retryStrategyProvider;
 
     private final AtomicBoolean stopped = new AtomicBoolean(false);
 
@@ -90,7 +90,8 @@ public class DiffCluster implements AutoCloseable
                        RateLimiter getPartitionRateLimiter,
                        int tokenScanFetchSize,
                        int partitionReadFetchSize,
-                       int readTimeoutMillis)
+                       int readTimeoutMillis,
+                       RetryStrategyProvider retryStrategyProvider)
 
     {
         this.consistencyLevel = consistencyLevel;
@@ -103,13 +104,17 @@ public class DiffCluster implements AutoCloseable
         this.tokenScanFetchSize = tokenScanFetchSize;
         this.partitionReadFetchSize = partitionReadFetchSize;
         this.readTimeoutMillis = readTimeoutMillis;
+        this.retryStrategyProvider = retryStrategyProvider;
     }
 
     public Iterator<PartitionKey> getPartitionKeys(KeyspaceTablePair table, final BigInteger prevToken, final BigInteger token) {
         try {
-            return Uninterruptibles.getUninterruptibly(fetchPartitionKeys(table, prevToken, token));
+            RetryStrategy retryStrategy = retryStrategyProvider.get();
+            return retryStrategy.retry(
+                () -> Uninterruptibles.getUninterruptibly(fetchPartitionKeys(table, prevToken, token))
+            );
         }
-        catch (ExecutionException ex) {
+        catch (Exception ex) {
             throw new RuntimeException(String.format("Unable to get partition keys (%s, %s] in table (%s) from cluster (%s)",
                                                      prevToken, token, table, clusterId.name()),
                                        ex);
@@ -144,9 +149,12 @@ public class DiffCluster implements AutoCloseable
 
     public Iterator<Row> getPartition(TableSpec table, PartitionKey key, boolean shouldReverse) {
         try {
-            return readPartition(table.getTable(), key, shouldReverse)
-                       .getUninterruptibly()
-                       .iterator();
+            RetryStrategy retryStrategy = retryStrategyProvider.get();
+            return retryStrategy.retry(
+                () -> readPartition(table.getTable(), key, shouldReverse)
+                          .getUninterruptibly()
+                          .iterator()
+            );
         }
         catch (Exception ex) {
             throw new RuntimeException(String.format("Unable to get partition (%s) in table (%s) from cluster (%s)",

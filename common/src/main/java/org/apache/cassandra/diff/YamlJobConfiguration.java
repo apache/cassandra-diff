@@ -47,6 +47,7 @@ public class YamlJobConfiguration implements JobConfiguration {
     public Map<String, Map<String, String>> cluster_config;
     public String specific_tokens = null;
     public String disallowed_tokens = null;
+    public RetryOptions retry_options;
 
     public static YamlJobConfiguration load(InputStream inputStream) {
         Yaml yaml = new Yaml(new CustomClassLoaderConstructor(YamlJobConfiguration.class,
@@ -100,6 +101,10 @@ public class YamlJobConfiguration implements JobConfiguration {
 
     public MetadataKeyspaceOptions metadataOptions() {
         return metadata_options;
+    }
+
+    public RetryOptions retryOptions() {
+        return retry_options;
     }
 
     public Map<String, String> clusterConfig(String identifier) {

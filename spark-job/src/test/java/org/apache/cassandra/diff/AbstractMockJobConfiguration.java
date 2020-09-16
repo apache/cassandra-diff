@@ -76,4 +76,9 @@ public abstract class AbstractMockJobConfiguration implements JobConfiguration {
     public Map<String, String> clusterConfig(String identifier) {
         throw uoe;
     }
+
+    @Override
+    public RetryOptions retryOptions() {
+        throw uoe;
+    }
 }
