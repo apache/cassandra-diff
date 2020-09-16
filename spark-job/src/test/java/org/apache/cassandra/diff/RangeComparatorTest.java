@@ -54,6 +54,7 @@ public class RangeComparatorTest {
     private BiConsumer<RangeStats, BigInteger> progressReporter = (r, t) -> journal.put(t, copyOf(r));
     private Set<BigInteger> comparedPartitions = new HashSet<>();
     private ComparisonExecutor executor = ComparisonExecutor.newExecutor(1, new MetricRegistry());
+    private RetryStrategyFactory mockRetryStrategyFactory = new RetryStrategyFactory(null);
 
     @Test
     public void emptyRange() {
@@ -472,7 +473,7 @@ public class RangeComparatorTest {
 
     // yield a PartitionComparator which always concludes that partitions being compared are identical
     PartitionComparator alwaysMatch(PartitionKey key) {
-        return new PartitionComparator(null, null, null) {
+        return new PartitionComparator(null, null, null, mockRetryStrategyFactory) {
             public PartitionStats call() {
                 comparedPartitions.add(key.getTokenAsBigInteger());
                 return new PartitionStats();
@@ -482,7 +483,7 @@ public class RangeComparatorTest {
 
     // yield a PartitionComparator which always determines that the partitions have a row-level mismatch
     PartitionComparator rowMismatch(PartitionKey key) {
-        return new PartitionComparator(null, null,  null) {
+        return new PartitionComparator(null, null,  null, mockRetryStrategyFactory) {
             public PartitionStats call() {
                 comparedPartitions.add(key.getTokenAsBigInteger());
                 PartitionStats stats = new PartitionStats();
@@ -494,7 +495,7 @@ public class RangeComparatorTest {
 
     // yield a PartitionComparator which always determines that the partitions have a 10 mismatching values
     PartitionComparator valuesMismatch(PartitionKey key) {
-        return new PartitionComparator(null, null,  null) {
+        return new PartitionComparator(null, null,  null, mockRetryStrategyFactory) {
             public PartitionStats call() {
                 comparedPartitions.add(key.getTokenAsBigInteger());
                 PartitionStats stats = new PartitionStats();
@@ -522,7 +523,7 @@ public class RangeComparatorTest {
     Function<PartitionKey, PartitionComparator> throwDuringExecution(RuntimeException toThrow, long...throwAt) {
         return (key) -> {
             BigInteger t = key.getTokenAsBigInteger();
-            return new PartitionComparator(null, null, null) {
+            return new PartitionComparator(null, null, null, mockRetryStrategyFactory) {
                 public PartitionStats call() {
                     for (long shouldThrow : throwAt)
                         if (t.longValue() == shouldThrow)
@@ -548,7 +549,7 @@ public class RangeComparatorTest {
             BigInteger t = key.getTokenAsBigInteger();
             taskSubmissions.countDown();
 
-            return new PartitionComparator(null, null, null) {
+            return new PartitionComparator(null, null, null, mockRetryStrategyFactory) {
                 public PartitionStats call() {
                     if (!gateIter.hasNext())
                         fail("Expected a latch to control task progress");

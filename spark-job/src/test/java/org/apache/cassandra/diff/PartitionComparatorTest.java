@@ -210,7 +210,7 @@ public class PartitionComparatorTest {
     }
 
     PartitionComparator comparator(TableSpec table, Iterator<Row> source, Iterator<Row> target) {
-        return new PartitionComparator(table, source, target);
+        return new PartitionComparator(table, source, target, new RetryStrategyFactory(null));
     }
 
     List<String> names(String...names) {

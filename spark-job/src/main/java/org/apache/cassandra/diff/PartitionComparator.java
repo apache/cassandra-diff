@@ -36,13 +36,16 @@ public class PartitionComparator implements Callable<PartitionStats> {
     private final TableSpec tableSpec;
     private final Iterator<Row> source;
     private final Iterator<Row> target;
+    private final RetryStrategyFactory retryStrategyFactory;
 
     public PartitionComparator(TableSpec tableSpec,
                                Iterator<Row> source,
-                               Iterator<Row> target) {
+                               Iterator<Row> target,
+                               RetryStrategyFactory retryStrategyFactory) {
         this.tableSpec = tableSpec;
         this.source = source;
         this.target = target;
+        this.retryStrategyFactory = retryStrategyFactory;
     }
 
     public PartitionStats call() {
@@ -84,14 +87,16 @@ public class PartitionComparator implements Callable<PartitionStats> {
         Callable<Boolean> hasNext = () -> type == Type.SOURCE
                                           ? source.hasNext()
                                           : target.hasNext();
-        return ClusterSourcedException.catches(type, hasNext);
+        RetryStrategy retryStrategy = retryStrategyFactory.create();
+        return ClusterSourcedException.catches(type, () -> retryStrategy.retry(hasNext));
     }
 
     private Row getNextRow(Type type) {
         Callable<Row> next = () -> type == Type.SOURCE
                                    ? source.next()
                                    : target.next();
-        return ClusterSourcedException.catches(type, next);
+        RetryStrategy retryStrategy = retryStrategyFactory.create();
+        return ClusterSourcedException.catches(type, () -> retryStrategy.retry(next));
     }
 
     private boolean clusteringsEqual(Row source, Row target) {

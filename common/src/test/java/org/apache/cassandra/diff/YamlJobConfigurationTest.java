@@ -12,6 +12,11 @@ public class YamlJobConfigurationTest {
             Assert.assertTrue("Keyspace segment is not loaded correctly", kt.keyspace.contains("ks"));
             Assert.assertTrue("Table segment is not loaded correctly", kt.table.contains("tb"));
         });
+        JobConfiguration.RetryOptions retryOptions = jobConfiguration.retryOptions();
+        Assert.assertNotNull("retry_options not defined", retryOptions);
+        Assert.assertNotNull("impl not defined", retryOptions.get(RetryStrategyFactory.IMPLEMENTATION_KEY));
+        Assert.assertNotNull("base_delay_ms not defined", retryOptions.get(ExponentialRetryStrategy.BASE_DELAY_MS_KEY));
+        Assert.assertNotNull("total_delay_ms not defined", retryOptions.get(ExponentialRetryStrategy.TOTAL_DELAY_MS_KEY));
     }
 
     @Test

@@ -62,6 +62,7 @@ public class Differ implements Serializable
     private final DiffJob.TrackerProvider trackerProvider;
     private final double reverseReadProbability;
     private final SpecificTokens specificTokens;
+    private final RetryStrategyFactory retryStrategyFactory;
 
     private static DiffCluster srcDiffCluster;
     private static DiffCluster targetDiffCluster;
@@ -100,6 +101,7 @@ public class Differ implements Serializable
         rateLimiter = RateLimiter.create(perExecutorRateLimit);
         this.reverseReadProbability = config.reverseReadProbability();
         this.specificTokens = config.specificTokens();
+        this.retryStrategyFactory = new RetryStrategyFactory(config.retryOptions());
         synchronized (Differ.class)
         {
             /*
@@ -116,7 +118,8 @@ public class Differ implements Serializable
                                                  rateLimiter,
                                                  config.tokenScanFetchSize(),
                                                  config.partitionReadFetchSize(),
-                                                 config.readTimeoutMillis());
+                                                 config.readTimeoutMillis(),
+                                                 retryStrategyFactory);
             }
 
             if (targetDiffCluster == null)
@@ -127,7 +130,8 @@ public class Differ implements Serializable
                                                     rateLimiter,
                                                     config.tokenScanFetchSize(),
                                                     config.partitionReadFetchSize(),
-                                                    config.readTimeoutMillis());
+                                                    config.readTimeoutMillis(),
+                                                    retryStrategyFactory);
             }
 
             if (journalSession == null)
@@ -212,7 +216,7 @@ public class Differ implements Serializable
                 boolean reverse = context.shouldReverse();
                 Iterator<Row> source = fetchRows(context, key, reverse, DiffCluster.Type.SOURCE);
                 Iterator<Row> target = fetchRows(context, key, reverse, DiffCluster.Type.TARGET);
-                return new PartitionComparator(context.table, source, target);
+                return new PartitionComparator(context.table, source, target, retryStrategyFactory);
             };
 
         RangeComparator rangeComparator = new RangeComparator(context,
@@ -230,7 +234,8 @@ public class Differ implements Serializable
         Callable<Iterator<Row>> rows = () -> type == DiffCluster.Type.SOURCE
                                              ? context.source.getPartition(context.table, key, shouldReverse)
                                              : context.target.getPartition(context.table, key, shouldReverse);
-        return ClusterSourcedException.catches(type, rows);
+        RetryStrategy retryStrategy = retryStrategyFactory.create();
+        return ClusterSourcedException.catches(type, () -> retryStrategy.retry(rows));
     }
 
     @VisibleForTesting
