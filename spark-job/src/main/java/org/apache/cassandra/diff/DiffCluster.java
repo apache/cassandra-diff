@@ -80,7 +80,7 @@ public class DiffCluster implements AutoCloseable
     private final int tokenScanFetchSize;
     private final int partitionReadFetchSize;
     private final int readTimeoutMillis;
-    private final RetryStrategyFactory retryStrategyFactory;
+    private final RetryStrategyProvider retryStrategyProvider;
 
     private final AtomicBoolean stopped = new AtomicBoolean(false);
 
@@ -91,7 +91,7 @@ public class DiffCluster implements AutoCloseable
                        int tokenScanFetchSize,
                        int partitionReadFetchSize,
                        int readTimeoutMillis,
-                       RetryStrategyFactory retryStrategyFactory)
+                       RetryStrategyProvider retryStrategyProvider)
 
     {
         this.consistencyLevel = consistencyLevel;
@@ -104,12 +104,12 @@ public class DiffCluster implements AutoCloseable
         this.tokenScanFetchSize = tokenScanFetchSize;
         this.partitionReadFetchSize = partitionReadFetchSize;
         this.readTimeoutMillis = readTimeoutMillis;
-        this.retryStrategyFactory = retryStrategyFactory;
+        this.retryStrategyProvider = retryStrategyProvider;
     }
 
     public Iterator<PartitionKey> getPartitionKeys(KeyspaceTablePair table, final BigInteger prevToken, final BigInteger token) {
         try {
-            RetryStrategy retryStrategy = retryStrategyFactory.create();
+            RetryStrategy retryStrategy = retryStrategyProvider.get();
             return retryStrategy.retry(
                 () -> Uninterruptibles.getUninterruptibly(fetchPartitionKeys(table, prevToken, token))
             );
@@ -149,7 +149,7 @@ public class DiffCluster implements AutoCloseable
 
     public Iterator<Row> getPartition(TableSpec table, PartitionKey key, boolean shouldReverse) {
         try {
-            RetryStrategy retryStrategy = retryStrategyFactory.create();
+            RetryStrategy retryStrategy = retryStrategyProvider.get();
             return retryStrategy.retry(
                 () -> readPartition(table.getTable(), key, shouldReverse)
                           .getUninterruptibly()

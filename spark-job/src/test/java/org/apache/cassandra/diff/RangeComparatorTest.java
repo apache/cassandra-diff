@@ -54,7 +54,7 @@ public class RangeComparatorTest {
     private BiConsumer<RangeStats, BigInteger> progressReporter = (r, t) -> journal.put(t, copyOf(r));
     private Set<BigInteger> comparedPartitions = new HashSet<>();
     private ComparisonExecutor executor = ComparisonExecutor.newExecutor(1, new MetricRegistry());
-    private RetryStrategyFactory mockRetryStrategyFactory = new RetryStrategyFactory(null);
+    private RetryStrategyProvider mockRetryStrategyFactory = RetryStrategyProvider.create(null); // create a NoRetry provider
 
     @Test
     public void emptyRange() {

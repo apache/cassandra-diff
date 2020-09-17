@@ -1,7 +1,5 @@
 package org.apache.cassandra.diff;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
@@ -10,7 +8,7 @@ import org.slf4j.LoggerFactory;
 public abstract class RetryStrategy {
     private final static Logger logger = LoggerFactory.getLogger(RetryStrategy.class);
 
-    public RetryStrategy(Map<String, String> parameters) {
+    public RetryStrategy(JobConfiguration.RetryOptions retryOptions) {
     }
 
     /**
@@ -35,10 +33,10 @@ public abstract class RetryStrategy {
     }
 
     public static class NoRetry extends RetryStrategy {
-        public final static RetryStrategy INSTANCE = new NoRetry(new HashMap<>());
+        public final static RetryStrategy INSTANCE = new NoRetry(new JobConfiguration.RetryOptions());
 
-        public NoRetry(Map<String, String> parameters) {
-            super(parameters);
+        public NoRetry(JobConfiguration.RetryOptions retryOptions) {
+            super(retryOptions);
         }
 
         @Override

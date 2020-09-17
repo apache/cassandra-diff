@@ -36,16 +36,16 @@ public class PartitionComparator implements Callable<PartitionStats> {
     private final TableSpec tableSpec;
     private final Iterator<Row> source;
     private final Iterator<Row> target;
-    private final RetryStrategyFactory retryStrategyFactory;
+    private final RetryStrategyProvider retryStrategyProvider;
 
     public PartitionComparator(TableSpec tableSpec,
                                Iterator<Row> source,
                                Iterator<Row> target,
-                               RetryStrategyFactory retryStrategyFactory) {
+                               RetryStrategyProvider retryStrategyProvider) {
         this.tableSpec = tableSpec;
         this.source = source;
         this.target = target;
-        this.retryStrategyFactory = retryStrategyFactory;
+        this.retryStrategyProvider = retryStrategyProvider;
     }
 
     public PartitionStats call() {
@@ -87,7 +87,7 @@ public class PartitionComparator implements Callable<PartitionStats> {
         Callable<Boolean> hasNext = () -> type == Type.SOURCE
                                           ? source.hasNext()
                                           : target.hasNext();
-        RetryStrategy retryStrategy = retryStrategyFactory.create();
+        RetryStrategy retryStrategy = retryStrategyProvider.get();
         return ClusterSourcedException.catches(type, () -> retryStrategy.retry(hasNext));
     }
 
@@ -95,7 +95,7 @@ public class PartitionComparator implements Callable<PartitionStats> {
         Callable<Row> next = () -> type == Type.SOURCE
                                    ? source.next()
                                    : target.next();
-        RetryStrategy retryStrategy = retryStrategyFactory.create();
+        RetryStrategy retryStrategy = retryStrategyProvider.get();
         return ClusterSourcedException.catches(type, () -> retryStrategy.retry(next));
     }
 

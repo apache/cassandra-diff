@@ -50,6 +50,6 @@ cluster_config:
     port: "9042"
     dc: "datacenter1"
 retry_options:
-  impl: "org.apache.cassandra.diff.ExponentialRetryStrategy"
+  impl: "org.apache.cassandra.diff.ExponentialRetryStategyProvider"
   base_delay_ms: "1"
   total_delay_ms: "2"

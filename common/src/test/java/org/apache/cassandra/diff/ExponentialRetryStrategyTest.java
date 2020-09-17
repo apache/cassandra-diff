@@ -1,12 +1,14 @@
 package org.apache.cassandra.diff;
 
-import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+
+import static org.apache.cassandra.diff.ExponentialRetryStategyProvider.Exponential;
+import static org.apache.cassandra.diff.ExponentialRetryStategyProvider.ExponentialRetryStrategy;
 
 public class ExponentialRetryStrategyTest {
     @Rule
@@ -16,7 +18,7 @@ public class ExponentialRetryStrategyTest {
     public void testPauseTimeIncreaseExponentially() {
         long base = 1;
         long total = 1000;
-        ExponentialRetryStrategy.Exponential exponential = new ExponentialRetryStrategy.Exponential(base, total);
+        Exponential exponential = new Exponential(base, total);
         long totalSoFar = 0;
         for (int i = 0; i < 100; i ++) {
             long actual = exponential.get(i);
@@ -29,7 +31,7 @@ public class ExponentialRetryStrategyTest {
                 }
                 totalSoFar += expected;
             }
-            Assert.assertEquals("Exponential generates unexpected sequence", expected, actual);
+            Assert.assertEquals("Exponential generates unexpected sequence at iteration#" + i, expected, actual);
         }
         Assert.assertEquals("The total pause time is not capped at totalDelayMs", total, totalSoFar);
     }
@@ -38,12 +40,12 @@ public class ExponentialRetryStrategyTest {
     public void testWrongArguments() {
         expectedException.expect(IllegalArgumentException.class);
         expectedException.expectMessage("baseDelayMs cannot be greater than totalDelayMs");
-        new ExponentialRetryStrategy.Exponential(10, 1);
+        new Exponential(10, 1);
     }
 
     @Test
     public void testToString() {
-        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(new HashMap<>());
+        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(new JobConfiguration.RetryOptions());
         String output = strategy.toString();
         Assert.assertEquals("ExponentialRetryStrategy(baseDelayMs: 1000, totalDelayMs: 1800000, currentAttempts: 0)",
                             output);
