@@ -41,7 +41,7 @@ public class YamlJobConfigurationTest {
     }
 
     @Test
-    public void testInstatiateRetryStategyProvider() {
+    public void testInstatiateRetryStrategyProvider() {
         JobConfiguration withExponentialRetry = load("testconfig.yaml");
         RetryStrategyProvider provider = RetryStrategyProvider.create(withExponentialRetry.retryOptions());
         Assert.assertThat(provider, CoreMatchers.instanceOf(ExponentialRetryStategyProvider.class));
