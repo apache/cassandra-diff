@@ -7,8 +7,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import static org.apache.cassandra.diff.ExponentialRetryStategyProvider.Exponential;
-import static org.apache.cassandra.diff.ExponentialRetryStategyProvider.ExponentialRetryStrategy;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.Exponential;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy;
 
 public class ExponentialRetryStrategyTest {
     @Rule

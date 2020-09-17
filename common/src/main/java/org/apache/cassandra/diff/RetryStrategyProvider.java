@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Provides new RetryStategy instances.
+ * Provides new RetryStrategy instances.
  * Use abstract class instead of interface in order to retain the referece to retryOptions;
  */
 public abstract class RetryStrategyProvider {

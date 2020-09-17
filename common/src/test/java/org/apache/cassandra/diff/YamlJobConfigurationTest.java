@@ -5,7 +5,7 @@ import org.junit.Test;
 
 import org.hamcrest.CoreMatchers;
 
-import static org.apache.cassandra.diff.ExponentialRetryStategyProvider.ExponentialRetryStrategy;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy;
 
 public class YamlJobConfigurationTest {
     @Test
@@ -18,7 +18,7 @@ public class YamlJobConfigurationTest {
         });
         JobConfiguration.RetryOptions retryOptions = jobConfiguration.retryOptions();
         Assert.assertNotNull("retry_options not defined", retryOptions);
-        Assert.assertNotNull("impl not defined", retryOptions.get(ExponentialRetryStategyProvider.IMPLEMENTATION_KEY));
+        Assert.assertNotNull("impl not defined", retryOptions.get(ExponentialRetryStrategyProvider.IMPLEMENTATION_KEY));
         Assert.assertNotNull("base_delay_ms not defined", retryOptions.get(ExponentialRetryStrategy.BASE_DELAY_MS_KEY));
         Assert.assertNotNull("total_delay_ms not defined", retryOptions.get(ExponentialRetryStrategy.TOTAL_DELAY_MS_KEY));
     }
@@ -44,7 +44,7 @@ public class YamlJobConfigurationTest {
     public void testInstatiateRetryStrategyProvider() {
         JobConfiguration withExponentialRetry = load("testconfig.yaml");
         RetryStrategyProvider provider = RetryStrategyProvider.create(withExponentialRetry.retryOptions());
-        Assert.assertThat(provider, CoreMatchers.instanceOf(ExponentialRetryStategyProvider.class));
+        Assert.assertThat(provider, CoreMatchers.instanceOf(ExponentialRetryStrategyProvider.class));
         Assert.assertThat(provider.get(), CoreMatchers.instanceOf(ExponentialRetryStrategy.class));
 
         // empty retry option leads to NoRetry strategy

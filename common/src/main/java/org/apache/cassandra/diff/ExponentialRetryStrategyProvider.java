@@ -5,8 +5,8 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Uninterruptibles;
 
-public class ExponentialRetryStategyProvider extends RetryStrategyProvider {
-    public ExponentialRetryStategyProvider(JobConfiguration.RetryOptions retryOptions) {
+public class ExponentialRetryStrategyProvider extends RetryStrategyProvider {
+    public ExponentialRetryStrategyProvider(JobConfiguration.RetryOptions retryOptions) {
         super(retryOptions);
     }
 
