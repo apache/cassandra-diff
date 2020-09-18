@@ -5,6 +5,11 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy.BASE_DELAY_MS_KEY;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy.DEFAULT_BASE_DELAY_MS;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy.DEFAULT_TOTAL_DELAY_MS;
+import static org.apache.cassandra.diff.ExponentialRetryStrategyProvider.ExponentialRetryStrategy.TOTAL_DELAY_MS_KEY;
+
 public class ExponentialRetryStrategyProvider extends RetryStrategyProvider {
     public ExponentialRetryStrategyProvider(JobConfiguration.RetryOptions retryOptions) {
         super(retryOptions);
@@ -12,22 +17,21 @@ public class ExponentialRetryStrategyProvider extends RetryStrategyProvider {
 
     @Override
     public RetryStrategy get() {
-        return new ExponentialRetryStrategy(retryOptions);
+        long baseDelayMs = Long.parseLong(retryOptions.getOrDefault(BASE_DELAY_MS_KEY, DEFAULT_BASE_DELAY_MS));
+        long totalDelayMs = Long.parseLong(retryOptions.getOrDefault(TOTAL_DELAY_MS_KEY, DEFAULT_TOTAL_DELAY_MS));
+        return new ExponentialRetryStrategy(baseDelayMs, totalDelayMs);
     }
 
     static class ExponentialRetryStrategy extends RetryStrategy {
         public final static String BASE_DELAY_MS_KEY = "base_delay_ms";
         public final static String TOTAL_DELAY_MS_KEY = "total_delay_ms";
-        private final static String DEFAULT_BASE_DELAY_MS = String.valueOf(TimeUnit.SECONDS.toMillis(1));
-        private final static String DEFAULT_TOTAL_DELAY_MS = String.valueOf(TimeUnit.MINUTES.toMillis(30));
+        final static String DEFAULT_BASE_DELAY_MS = String.valueOf(TimeUnit.SECONDS.toMillis(1));
+        final static String DEFAULT_TOTAL_DELAY_MS = String.valueOf(TimeUnit.MINUTES.toMillis(30));
 
         private final Exponential exponential;
         private int attempts = 0;
 
-        public ExponentialRetryStrategy(JobConfiguration.RetryOptions retryOptions) {
-            super(retryOptions);
-            long baseDelayMs = Long.parseLong(retryOptions.getOrDefault(BASE_DELAY_MS_KEY, DEFAULT_BASE_DELAY_MS));
-            long totalDelayMs = Long.parseLong(retryOptions.getOrDefault(TOTAL_DELAY_MS_KEY, DEFAULT_TOTAL_DELAY_MS));
+        public ExponentialRetryStrategy(long baseDelayMs, long totalDelayMs) {
             this.exponential = new Exponential(baseDelayMs, totalDelayMs);
         }
 
@@ -72,7 +76,7 @@ public class ExponentialRetryStrategyProvider extends RetryStrategyProvider {
          * @return the next pasuse time in milliseconds, or negtive if no longer allowed.
          */
         long get(int attempts) {
-            long nextMaybe = baseDelayMs * (1L << attempts); // Do not care about overflow. pausedInTotal() corrects the value
+            long nextMaybe = baseDelayMs << attempts; // Do not care about overflow. pausedInTotal() corrects the value
             if (attempts == 0) { // first retry
                 return nextMaybe;
             } else {
@@ -88,8 +92,10 @@ public class ExponentialRetryStrategyProvider extends RetryStrategyProvider {
         // i.e. [0, attempts), which is guaranteed to be greater than or equal to 0.
         // No overflow can happen.
         private long pausedInTotal(int attempts) {
-            if (attempts >= Long.SIZE) return totalDelayMs; // take care of overflow. Such long pause time is not realistic though.
-            long result = baseDelayMs * ((1L << attempts) - 1); // 2^0 + 2^1 + ... + 2^n = 2^(n+1) - 1
+            // take care of overflow. Such long pause time is not realistic though.
+            if (attempts >= Long.numberOfLeadingZeros(baseDelayMs))
+                return totalDelayMs;
+            long result = (baseDelayMs << attempts) - baseDelayMs; // X^1 + X^2 ... + X^n = X^(n+1) - X
             return Math.min(totalDelayMs, result);
         }
     }

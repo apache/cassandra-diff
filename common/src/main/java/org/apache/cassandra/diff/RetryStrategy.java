@@ -8,9 +8,6 @@ import org.slf4j.LoggerFactory;
 public abstract class RetryStrategy {
     private final static Logger logger = LoggerFactory.getLogger(RetryStrategy.class);
 
-    public RetryStrategy(JobConfiguration.RetryOptions retryOptions) {
-    }
-
     /**
      * Decide whether retry is desired or not.
      * @return true to retry, see {@link #retry(Callable)}.
@@ -33,11 +30,7 @@ public abstract class RetryStrategy {
     }
 
     public static class NoRetry extends RetryStrategy {
-        public final static RetryStrategy INSTANCE = new NoRetry(new JobConfiguration.RetryOptions());
-
-        public NoRetry(JobConfiguration.RetryOptions retryOptions) {
-            super(retryOptions);
-        }
+        public final static RetryStrategy INSTANCE = new NoRetry();
 
         @Override
         public boolean shouldRetry() {

@@ -1,5 +1,6 @@
 package org.apache.cassandra.diff;
 
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
@@ -16,7 +17,7 @@ public class ExponentialRetryStrategyTest {
 
     @Test
     public void testPauseTimeIncreaseExponentially() {
-        long base = 1;
+        long base = 10;
         long total = 1000;
         Exponential exponential = new Exponential(base, total);
         long totalSoFar = 0;
@@ -45,8 +46,8 @@ public class ExponentialRetryStrategyTest {
 
     @Test
     public void testToString() {
-        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(new JobConfiguration.RetryOptions());
-        String output = strategy.toString();
+        ExponentialRetryStrategyProvider provider = new ExponentialRetryStrategyProvider(new JobConfiguration.RetryOptions());
+        String output = provider.get().toString();
         Assert.assertEquals("ExponentialRetryStrategy(baseDelayMs: 1000, totalDelayMs: 1800000, currentAttempts: 0)",
                             output);
     }
@@ -54,7 +55,7 @@ public class ExponentialRetryStrategyTest {
     @Test
     public void testSuccessAfterRetry() throws Exception {
         AtomicInteger retryCount = new AtomicInteger(0);
-        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(retryOptions(1, 1000));
+        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(1, 1000);
         int result = strategy.retry(() -> {
             if (retryCount.getAndIncrement() < 2) {
                 throw new RuntimeException("fail");
@@ -68,13 +69,26 @@ public class ExponentialRetryStrategyTest {
     @Test
     public void testFailureAfterAllRetries() throws Exception {
         AtomicInteger execCount = new AtomicInteger(0);
-        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(retryOptions(1, 2));
+        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(1, 2);
         expectedException.expect(RuntimeException.class);
         expectedException.expectMessage("fail at execution#2"); // 0 based
         // the lambda runs 3 times at timestamp 0, 1, 2 and fail
         strategy.retry(() -> {
             throw new RuntimeException("fail at execution#" + execCount.getAndIncrement());
         });
+    }
+
+    @Test
+    public void testOverflowPrevention() {
+        Random rand = new Random();
+        for (int i = 0; i < 1000; i++) {
+            long base = rand.nextInt(100000) + 1; // [1, 100000]
+            int leadingZeros = Long.numberOfLeadingZeros(base);
+            Exponential exponential = new Exponential(base, Long.MAX_VALUE);
+            Assert.assertTrue("The last attempt that still generate valid pause time. Failed with base: " + base,
+                              exponential.get(leadingZeros - 1) > 0);
+            Assert.assertEquals("Failed with base: " + base, -1, exponential.get(leadingZeros));
+        }
     }
 
     private JobConfiguration.RetryOptions retryOptions(long baseDelayMs, long totalDelayMs) {
