@@ -125,12 +125,13 @@ public class DiffJob {
         try (Cluster metadataCluster = metadataProvider.getCluster();
              Session metadataSession = metadataCluster.connect()) {
 
+            RetryStrategyProvider retryStrategyProvider = RetryStrategyProvider.create(configuration.retryOptions());
             MetadataKeyspaceOptions metadataOptions = configuration.metadataOptions();
-            JobMetadataDb.Schema.maybeInitialize(metadataSession, metadataOptions);
+            JobMetadataDb.Schema.maybeInitialize(metadataSession, metadataOptions, retryStrategyProvider);
 
             // Job params, which once a job is created cannot be modified in subsequent re-runs
             logger.info("Creating or retrieving job parameters");
-            job = new JobMetadataDb.JobLifeCycle(metadataSession, metadataOptions.keyspace);
+            job = new JobMetadataDb.JobLifeCycle(metadataSession, metadataOptions.keyspace, retryStrategyProvider);
             Params params = getJobParams(job, configuration, tablesToCompare);
             logger.info("Job Params: {}", params);
             if (null == params)
@@ -174,7 +175,8 @@ public class DiffJob {
                                                                                         sourceProvider,
                                                                                         targetProvider,
                                                                                         metadataProvider,
-                                                                                        new TrackerProvider(configuration.metadataOptions().keyspace))
+                                                                                        new TrackerProvider(configuration.metadataOptions().keyspace),
+                                                                                        retryStrategyProvider)
                                                                                  .run())
                                                              .reduce(Differ::accumulate);
             // Publish results. This also removes the job from the currently running list

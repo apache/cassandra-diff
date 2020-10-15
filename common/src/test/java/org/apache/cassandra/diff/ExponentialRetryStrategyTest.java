@@ -91,6 +91,40 @@ public class ExponentialRetryStrategyTest {
         }
     }
 
+    @Test
+    public void testNotMatchAndRetryWithRetryIfNot() {
+        AtomicInteger execCount = new AtomicInteger(0);
+        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(1, 5);
+        // run the code and retry since the thrown exception does not match with the exclude list
+        try {
+            strategy.retryIfNot(() -> {
+                execCount.getAndIncrement();
+                throw new IllegalStateException();
+            }, IllegalArgumentException.class, UnsupportedOperationException.class);
+        }
+        catch (Exception ex) {
+            Assert.assertSame(IllegalStateException.class, ex.getClass());
+            Assert.assertEquals(4, execCount.get());
+        }
+    }
+
+    @Test
+    public void testMatchAndRetryWithRetryIfNot() {
+        AtomicInteger execCount = new AtomicInteger(0);
+        ExponentialRetryStrategy strategy = new ExponentialRetryStrategy(1, 2);
+        // run the code and not retry since the thrown exception matches the exclude list
+        try {
+            strategy.retryIfNot(() -> {
+                execCount.getAndIncrement();
+                throw new IllegalStateException();
+            }, RuntimeException.class);
+        }
+        catch (Exception ex) {
+            Assert.assertSame(IllegalStateException.class, ex.getClass());
+            Assert.assertEquals(1, execCount.get());
+        }
+    }
+
     private JobConfiguration.RetryOptions retryOptions(long baseDelayMs, long totalDelayMs) {
         return new JobConfiguration.RetryOptions() {{
             put(ExponentialRetryStrategy.BASE_DELAY_MS_KEY, String.valueOf(baseDelayMs));

@@ -90,7 +90,8 @@ public class Differ implements Serializable
                   ClusterProvider sourceProvider,
                   ClusterProvider targetProvider,
                   ClusterProvider metadataProvider,
-                  DiffJob.TrackerProvider trackerProvider)
+                  DiffJob.TrackerProvider trackerProvider,
+                  RetryStrategyProvider retryStrategyProvider)
     {
         logger.info("Creating Differ for {}", split);
         this.jobId = params.jobId;
@@ -101,7 +102,7 @@ public class Differ implements Serializable
         rateLimiter = RateLimiter.create(perExecutorRateLimit);
         this.reverseReadProbability = config.reverseReadProbability();
         this.specificTokens = config.specificTokens();
-        this.retryStrategyProvider = RetryStrategyProvider.create(config.retryOptions());
+        this.retryStrategyProvider = retryStrategyProvider;
         synchronized (Differ.class)
         {
             /*
