@@ -1,5 +1,7 @@
 package org.apache.cassandra.diff;
 
+import java.io.Serializable;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -7,7 +9,7 @@ import org.slf4j.LoggerFactory;
  * Provides new RetryStrategy instances.
  * Use abstract class instead of interface in order to retain the referece to retryOptions;
  */
-public abstract class RetryStrategyProvider {
+public abstract class RetryStrategyProvider implements Serializable {
     protected final JobConfiguration.RetryOptions retryOptions;
 
     public RetryStrategyProvider(JobConfiguration.RetryOptions retryOptions) {

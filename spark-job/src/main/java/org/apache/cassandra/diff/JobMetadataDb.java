@@ -23,6 +23,7 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import com.google.common.base.Throwables;
@@ -37,12 +38,36 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.exceptions.DriverException;
+import com.datastax.driver.core.exceptions.NoHostAvailableException;
+import com.datastax.driver.core.exceptions.QueryExecutionException;
+import com.datastax.driver.core.exceptions.QueryValidationException;
 import com.datastax.driver.core.utils.UUIDs;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
 public class JobMetadataDb {
     private static final Logger logger = LoggerFactory.getLogger(JobMetadataDb.class);
+
+    @FunctionalInterface
+    private interface QueryExecution {
+        ResultSet execute() throws DriverException;
+    }
+
+    /**
+     * Ignore QueryConsistencyException (e.g. Read/Write timeout/failure) from the queryExecution.
+     * @param queryExecution
+     * @return resultSet. In the case of QueryConsistencyException, null is returned.
+     */
+    private static ResultSet ignoreQueryException(QueryExecution queryExecution) {
+        try {
+            return queryExecution.execute();
+        }
+        catch (QueryExecutionException queryException) {
+            logger.warn("Ignoring a failed query.", queryException);
+            return null;
+        }
+    }
 
     static class ProgressTracker {
 
@@ -51,7 +76,7 @@ public class JobMetadataDb {
         private final String startToken;
         private final String endToken;
         private final String metadataKeyspace;
-        private Session session;
+        private final Session session;
 
         private static PreparedStatement updateStmt;
         private static PreparedStatement mismatchStmt;
@@ -155,24 +180,25 @@ public class JobMetadataDb {
          * @return
          */
         public DiffJob.TaskStatus getLastStatus(KeyspaceTablePair keyspaceTablePair) {
-            ResultSet rs = session.execute(String.format("SELECT last_token, " +
-                                                         "       matched_partitions, " +
-                                                         "       mismatched_partitions, " +
-                                                         "       partitions_only_in_source, " +
-                                                         "       partitions_only_in_target, " +
-                                                         "       matched_rows," +
-                                                         "       matched_values," +
-                                                         "       mismatched_values," +
-                                                         "       skipped_partitions " +
-                                                         " FROM %s.%s " +
-                                                         " WHERE job_id = ? " +
-                                                         " AND   bucket = ? " +
-                                                         " AND   qualified_table_name = ? " +
-                                                         " AND   start_token = ? " +
-                                                         " AND   end_token = ?",
-                                                         metadataKeyspace, Schema.TASK_STATUS),
-                                           jobId, bucket, keyspaceTablePair.toCqlValueString(), startToken, endToken);
-            Row row = rs.one();
+            ResultSet rs = ignoreQueryException(
+                () -> session.execute(String.format("SELECT last_token, " +
+                                                    "       matched_partitions, " +
+                                                    "       mismatched_partitions, " +
+                                                    "       partitions_only_in_source, " +
+                                                    "       partitions_only_in_target, " +
+                                                    "       matched_rows," +
+                                                    "       matched_values," +
+                                                    "       mismatched_values," +
+                                                    "       skipped_partitions " +
+                                                    " FROM %s.%s " +
+                                                    " WHERE job_id = ? " +
+                                                    " AND   bucket = ? " +
+                                                    " AND   qualified_table_name = ? " +
+                                                    " AND   start_token = ? " +
+                                                    " AND   end_token = ?",
+                                                    metadataKeyspace, Schema.TASK_STATUS),
+                                      jobId, bucket, keyspaceTablePair.toCqlValueString(), startToken, endToken));
+            Row row = (rs == null) ? null : rs.one();
             if (null == row)
                 return DiffJob.TaskStatus.EMPTY;
 
@@ -197,7 +223,7 @@ public class JobMetadataDb {
          * @param latestToken
          */
         public void updateStatus(KeyspaceTablePair table, RangeStats diffStats, BigInteger latestToken) {
-            session.execute(bindUpdateStatement(table, diffStats, latestToken));
+            ignoreQueryException(() -> session.execute(bindUpdateStatement(table, diffStats, latestToken)));
         }
 
         public void recordMismatch(KeyspaceTablePair table, MismatchType type, BigInteger token) {
@@ -206,7 +232,7 @@ public class JobMetadataDb {
                                       ? " different in source and target clusters"
                                       : type == MismatchType.ONLY_IN_SOURCE ? "only present in source cluster"
                                                                             : "only present in target cluster");
-            session.execute(bindMismatchesStatement(table, token, type.name()));
+            ignoreQueryException(() -> session.execute(bindMismatchesStatement(table, token, type.name())));
         }
 
         /**
@@ -230,7 +256,7 @@ public class JobMetadataDb {
             }
             batch.add(bindErrorDetailStatement(table, token, exceptionSource));
             batch.setIdempotent(true);
-            session.execute(batch);
+            ignoreQueryException(() -> session.execute(batch));
         }
 
         /**
@@ -241,10 +267,10 @@ public class JobMetadataDb {
         public void finishTable(KeyspaceTablePair table, RangeStats stats, boolean updateCompletedCount) {
             logger.info("Finishing range [{}, {}] for table {}", startToken, endToken, table);
             // first flush out the last status.
-            session.execute(bindUpdateStatement(table, stats, endToken));
+            ignoreQueryException(() -> session.execute(bindUpdateStatement(table, stats, endToken)));
             // then update the count of completed tasks
             if (updateCompletedCount)
-                session.execute(updateCompleteStmt.bind(jobId, bucket, table.toCqlValueString()));
+                ignoreQueryException(() -> session.execute(updateCompleteStmt.bind(jobId, bucket, table.toCqlValueString())));
         }
 
         private Statement bindMismatchesStatement(KeyspaceTablePair table, BigInteger token, String type) {
@@ -296,21 +322,24 @@ public class JobMetadataDb {
     static class JobLifeCycle {
         final Session session;
         final String metadataKeyspace;
+        final RetryStrategyProvider retryStrategyProvider;
 
-        public JobLifeCycle(Session session, String metadataKeyspace) {
+        public JobLifeCycle(Session session, String metadataKeyspace, RetryStrategyProvider retryStrategyProvider) {
             this.session = session;
             this.metadataKeyspace = metadataKeyspace;
+            this.retryStrategyProvider = retryStrategyProvider;
         }
 
         public DiffJob.Params getJobParams(UUID jobId) {
-            ResultSet rs = session.execute(String.format("SELECT qualified_table_names," +
-                                                         "       buckets," +
-                                                         "       total_tasks " +
-                                                         "FROM %s.%s " +
-                                                         "WHERE job_id = ?",
-                                                         metadataKeyspace, Schema.JOB_SUMMARY),
-                                           jobId);
-            Row row = rs.one();
+            ResultSet rs = ignoreQueryException(
+                () -> session.execute(String.format("SELECT qualified_table_names," +
+                                                    "       buckets," +
+                                                    "       total_tasks " +
+                                                    "FROM %s.%s " +
+                                                    "WHERE job_id = ?",
+                                                    metadataKeyspace, Schema.JOB_SUMMARY),
+                                      jobId));
+            Row row = (rs == null) ? null : rs.one();
             if (null == row)
                 return null;
 
@@ -318,7 +347,7 @@ public class JobMetadataDb {
             List<KeyspaceTablePair> keyspaceTables = row.getList("qualified_table_names", String.class)
                                                         .stream()
                                                         .map(KeyspaceTablePair::new)
-                                                        .collect(Collectors.toList());;
+                                                        .collect(Collectors.toList());
             return new DiffJob.Params(jobId,
                                       keyspaceTables,
                                       row.getInt("buckets"),
@@ -331,7 +360,7 @@ public class JobMetadataDb {
                                   String sourceClusterName,
                                   String sourceClusterDesc,
                                   String targetClusterName,
-                                  String targetClusterDesc) {
+                                  String targetClusterDesc) throws Exception {
 
             logger.info("Initializing job status");
             // The job was previously run, so this could be a re-run to
@@ -349,28 +378,33 @@ public class JobMetadataDb {
             UUID timeUUID = UUIDs.timeBased();
             DateTime startDateTime = new DateTime(UUIDs.unixTimestamp(timeUUID), DateTimeZone.UTC);
 
-            rs = session.execute(String.format("INSERT INTO %s.%s (" +
-                                               " job_id," +
-                                               " job_start_time," +
-                                               " buckets," +
-                                               " qualified_table_names," +
-                                               " source_cluster_name," +
-                                               " source_cluster_desc," +
-                                               " target_cluster_name," +
-                                               " target_cluster_desc," +
-                                               " total_tasks)" +
-                                               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)" +
-                                               " IF NOT EXISTS",
-                                               metadataKeyspace, Schema.JOB_SUMMARY),
-                                 params.jobId,
-                                 timeUUID,
-                                 params.buckets,
-                                 params.keyspaceTables.stream().map(KeyspaceTablePair::toCqlValueString).collect(Collectors.toList()),
-                                 sourceClusterName,
-                                 sourceClusterDesc,
-                                 targetClusterName,
-                                 targetClusterDesc,
-                                 params.tasks);
+            Statement initJobStatusStatement =
+                new SimpleStatement(String.format("INSERT INTO %s.%s (" +
+                                                  " job_id," +
+                                                  " job_start_time," +
+                                                  " buckets," +
+                                                  " qualified_table_names," +
+                                                  " source_cluster_name," +
+                                                  " source_cluster_desc," +
+                                                  " target_cluster_name," +
+                                                  " target_cluster_desc," +
+                                                  " total_tasks)" +
+                                                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)" +
+                                                  " IF NOT EXISTS",
+                                                  metadataKeyspace, Schema.JOB_SUMMARY),
+                                    params.jobId,
+                                    timeUUID,
+                                    params.buckets,
+                                    params.keyspaceTables.stream().map(KeyspaceTablePair::toCqlValueString).collect(Collectors.toList()),
+                                    sourceClusterName,
+                                    sourceClusterDesc,
+                                    targetClusterName,
+                                    targetClusterDesc,
+                                    params.tasks);
+            initJobStatusStatement.setIdempotent(true);
+            rs = retryStrategyProvider.get().retryIfNot(() -> session.execute(initJobStatusStatement),
+                                                        NoHostAvailableException.class,
+                                                        QueryValidationException.class);
 
             // This is a brand new job, index its details including start time
             if (rs.one().getBool("[applied]")) {
@@ -388,46 +422,51 @@ public class JobMetadataDb {
                                                             "VALUES ('%s', ?, ?, ?)",
                                                             metadataKeyspace, Schema.JOB_START_INDEX, startDateTime.toString("yyyy-MM-dd")),
                                               startDateTime.getHourOfDay(), timeUUID, params.jobId));
-                session.execute(batch);
+                batch.setIdempotent(true);
+                retryStrategyProvider.get().retryIfNot(() -> session.execute(batch),
+                                                       NoHostAvailableException.class,
+                                                       QueryValidationException.class);
             }
         }
 
-        public void finalizeJob(UUID jobId, Map<KeyspaceTablePair, RangeStats> results) {
+        public void finalizeJob(UUID jobId, Map<KeyspaceTablePair, RangeStats> results) throws Exception {
             logger.info("Finalizing job status");
 
             markNotRunning(jobId);
 
-            BatchStatement batch = new BatchStatement();
             for (Map.Entry<KeyspaceTablePair, RangeStats> result : results.entrySet()) {
                 KeyspaceTablePair table = result.getKey();
                 RangeStats stats = result.getValue();
-                session.execute(String.format("INSERT INTO %s.%s (" +
-                                              "  job_id," +
-                                              "  qualified_table_name," +
-                                              "  matched_partitions," +
-                                              "  mismatched_partitions," +
-                                              "  partitions_only_in_source," +
-                                              "  partitions_only_in_target," +
-                                              "  matched_rows," +
-                                              "  matched_values," +
-                                              "  mismatched_values," +
-                                              "  skipped_partitions) " +
-                                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                              metadataKeyspace, Schema.JOB_RESULTS),
-                                jobId,
-                                table.toCqlValueString(),
-                                stats.getMatchedPartitions(),
-                                stats.getMismatchedPartitions(),
-                                stats.getOnlyInSource(),
-                                stats.getOnlyInTarget(),
-                                stats.getMatchedRows(),
-                                stats.getMatchedValues(),
-                                stats.getMismatchedValues(),
-                                stats.getSkippedPartitions());
+                Statement jobResultUpdateStatement =
+                    new SimpleStatement(String.format("INSERT INTO %s.%s (" +
+                                                      "  job_id," +
+                                                      "  qualified_table_name," +
+                                                      "  matched_partitions," +
+                                                      "  mismatched_partitions," +
+                                                      "  partitions_only_in_source," +
+                                                      "  partitions_only_in_target," +
+                                                      "  matched_rows," +
+                                                      "  matched_values," +
+                                                      "  mismatched_values," +
+                                                      "  skipped_partitions) " +
+                                                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                                      metadataKeyspace, Schema.JOB_RESULTS),
+                                        jobId,
+                                        table.toCqlValueString(),
+                                        stats.getMatchedPartitions(),
+                                        stats.getMismatchedPartitions(),
+                                        stats.getOnlyInSource(),
+                                        stats.getOnlyInTarget(),
+                                        stats.getMatchedRows(),
+                                        stats.getMatchedValues(),
+                                        stats.getMismatchedValues(),
+                                        stats.getSkippedPartitions());
+                jobResultUpdateStatement.setIdempotent(true);
+                // also retry with NoHostAvailableException
+                retryStrategyProvider.get().retryIfNot(() -> session.execute(jobResultUpdateStatement),
+                                                       QueryValidationException.class);
             }
-            session.execute(batch);
         }
-
 
         public void markNotRunning(UUID jobId) {
             try
@@ -580,24 +619,35 @@ public class JobMetadataDb {
         private static final String KEYSPACE_SCHEMA = "CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s";
 
 
-        public static void maybeInitialize(Session session, MetadataKeyspaceOptions options) {
+        public static void maybeInitialize(Session session, MetadataKeyspaceOptions options, RetryStrategyProvider retryStrategyProvider) {
             if (!options.should_init)
                 return;
 
+            Consumer<String> retryQuery = query -> {
+                try {
+                    retryStrategyProvider.get().retryIfNot(() -> session.execute(query),
+                                                           NoHostAvailableException.class,
+                                                           QueryValidationException.class);
+                }
+                catch (Exception exception) {
+                    Throwables.propagate(exception);
+                }
+            };
+
             logger.info("Initializing cassandradiff journal schema in \"{}\" keyspace", options.keyspace);
-            session.execute(String.format(KEYSPACE_SCHEMA, options.keyspace, options.replication));
-            session.execute(String.format(JOB_SUMMARY_SCHEMA, options.keyspace, JOB_SUMMARY, options.ttl));
-            session.execute(String.format(JOB_STATUS_SCHEMA, options.keyspace, JOB_STATUS));
-            session.execute(String.format(JOB_RESULTS_SCHEMA, options.keyspace, JOB_RESULTS, options.ttl));
-            session.execute(String.format(TASK_STATUS_SCHEMA, options.keyspace, TASK_STATUS, options.ttl));
-            session.execute(String.format(MISMATCHES_SCHEMA, options.keyspace, MISMATCHES, options.ttl));
-            session.execute(String.format(ERROR_SUMMARY_SCHEMA, options.keyspace, ERROR_SUMMARY, options.ttl));
-            session.execute(String.format(ERROR_DETAIL_SCHEMA, options.keyspace, ERROR_DETAIL, options.ttl));
-            session.execute(String.format(SOURCE_CLUSTER_INDEX_SCHEMA, options.keyspace, SOURCE_CLUSTER_INDEX, options.ttl));
-            session.execute(String.format(TARGET_CLUSTER_INDEX_SCHEMA, options.keyspace, TARGET_CLUSTER_INDEX, options.ttl));
-            session.execute(String.format(KEYSPACE_INDEX_SCHEMA, options.keyspace, KEYSPACE_INDEX, options.ttl));
-            session.execute(String.format(JOB_START_INDEX_SCHEMA, options.keyspace, JOB_START_INDEX, options.ttl));
-            session.execute(String.format(RUNNING_JOBS_SCHEMA, options.keyspace, RUNNING_JOBS, options.ttl));
+            retryQuery.accept(String.format(KEYSPACE_SCHEMA, options.keyspace, options.replication));
+            retryQuery.accept(String.format(JOB_SUMMARY_SCHEMA, options.keyspace, JOB_SUMMARY, options.ttl));
+            retryQuery.accept(String.format(JOB_STATUS_SCHEMA, options.keyspace, JOB_STATUS));
+            retryQuery.accept(String.format(JOB_RESULTS_SCHEMA, options.keyspace, JOB_RESULTS, options.ttl));
+            retryQuery.accept(String.format(TASK_STATUS_SCHEMA, options.keyspace, TASK_STATUS, options.ttl));
+            retryQuery.accept(String.format(MISMATCHES_SCHEMA, options.keyspace, MISMATCHES, options.ttl));
+            retryQuery.accept(String.format(ERROR_SUMMARY_SCHEMA, options.keyspace, ERROR_SUMMARY, options.ttl));
+            retryQuery.accept(String.format(ERROR_DETAIL_SCHEMA, options.keyspace, ERROR_DETAIL, options.ttl));
+            retryQuery.accept(String.format(SOURCE_CLUSTER_INDEX_SCHEMA, options.keyspace, SOURCE_CLUSTER_INDEX, options.ttl));
+            retryQuery.accept(String.format(TARGET_CLUSTER_INDEX_SCHEMA, options.keyspace, TARGET_CLUSTER_INDEX, options.ttl));
+            retryQuery.accept(String.format(KEYSPACE_INDEX_SCHEMA, options.keyspace, KEYSPACE_INDEX, options.ttl));
+            retryQuery.accept(String.format(JOB_START_INDEX_SCHEMA, options.keyspace, JOB_START_INDEX, options.ttl));
+            retryQuery.accept(String.format(RUNNING_JOBS_SCHEMA, options.keyspace, RUNNING_JOBS, options.ttl));
             logger.info("Schema initialized");
         }
     }
