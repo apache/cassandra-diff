@@ -222,7 +222,7 @@ public class DiffCluster implements AutoCloseable
         for (String column : partitionKeyColumns)
             selection = selection.column(column);
 
-        BuiltStatement select = selection.from(tableMetadata)
+        BuiltStatement select = selection.from(cqlizedString(tableMetadata.getKeyspace().getName()), cqlizedString(tableMetadata.getName()))
                                          .where(gt(token(partitionKeyColumns), bindMarker()))
                                          .and(lte(token(partitionKeyColumns), bindMarker()));
 
@@ -242,7 +242,7 @@ public class DiffCluster implements AutoCloseable
         for (String column : allColumns)
             selection = selection.column(column);
 
-        Select select = selection.from(tableMetadata);
+        Select select = selection.from(cqlizedString(tableMetadata.getKeyspace().getName()), cqlizedString(tableMetadata.getName()));
 
         for (String column : partitionKeyColumns)
             select.where().and(eq(column, bindMarker()));
@@ -262,8 +262,8 @@ public class DiffCluster implements AutoCloseable
         Ordering[] reverseOrdering = new Ordering[clusteringColumns.size()];
         for (int i=0; i<clusteringColumns.size(); i++) {
             reverseOrdering[i] = clusteringOrders.get(i) == ClusteringOrder.ASC
-                                 ? desc(clusteringColumns.get(i).getName())
-                                 : asc(clusteringColumns.get(i).getName());
+                                 ? desc(columnToString(clusteringColumns.get(i).getName()))
+                                 : asc(columnToString(clusteringColumns.get(i).getName()));
         }
 
         select.orderBy(reverseOrdering);
