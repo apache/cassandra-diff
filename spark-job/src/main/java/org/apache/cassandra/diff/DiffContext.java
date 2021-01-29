@@ -61,10 +61,11 @@ public class DiffContext {
     }
 
     public static String cqlizedString(final String str) {
-        if (str.toLowerCase().equals(str)) {
-            return str;
-        } else {
+        boolean shouldQuote = !str.startsWith("\"");
+        if (shouldQuote) {
             return "\"" + str + "\"";
+        } else {
+            return str;
         }
     }
 
