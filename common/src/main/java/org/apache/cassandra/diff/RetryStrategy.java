@@ -36,7 +36,7 @@ public abstract class RetryStrategy {
     protected abstract boolean shouldRetry();
 
     public final <T> T retry(Callable<T> retryable) throws Exception {
-        return retryIfNot(retryable, FakeException.class);
+        return retryIfNot(retryable);
     }
 
     /**
@@ -77,10 +77,5 @@ public abstract class RetryStrategy {
         public String toString() {
             return this.getClass().getSimpleName();
         }
-    }
-
-    // The fake exception used internally.
-    // No one extends it so that it is a never matched.
-    private static final class FakeException extends Exception {
     }
 }
