@@ -20,11 +20,18 @@
 package org.apache.cassandra.diff;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class DiffJobTest
 {
@@ -37,6 +44,37 @@ public class DiffJobTest
     public void testSplitsRandom()
     {
         splitTestHelper(TokenHelper.forPartitioner("RandomPartitioner"));
+    }
+
+    @Test
+    public void testGetJobParamsWithJobIdProvidedShouldReturnNonNullConFigParams() {
+        final MockConfig mockConfig = new MockConfig();
+        final JobMetadataDb.JobLifeCycle mockJob = mock(JobMetadataDb.JobLifeCycle.class);
+        final List<KeyspaceTablePair> keyspaceTablePairs = new ArrayList<>();
+        final DiffJob.Params params = DiffJob.getJobParams(mockJob, mockConfig, keyspaceTablePairs);
+        assertNotNull(params);
+    }
+
+    @Test
+    public void testGetJobParamsDuringRetryShouldReturnPreviousParams() {
+        final MockConfig mockConfig = new MockConfig();
+        final JobMetadataDb.JobLifeCycle mockJob = mock(JobMetadataDb.JobLifeCycle.class);
+        final DiffJob.Params mockParams = mock(DiffJob.Params.class);
+        when(mockJob.getJobParams(any())).thenAnswer(invocationOnMock -> mockParams);
+        final List<KeyspaceTablePair> keyspaceTablePairs = new ArrayList<>();
+        final DiffJob.Params params = DiffJob.getJobParams(mockJob, mockConfig, keyspaceTablePairs);
+        assertEquals(params, mockParams);
+    }
+
+    @Test
+    public void testGetJobParamsWithNoJobId() {
+        final MockConfig mockConfig = mock(MockConfig.class);
+        when(mockConfig.jobId()).thenReturn(Optional.empty());
+
+        final JobMetadataDb.JobLifeCycle mockJob = mock(JobMetadataDb.JobLifeCycle.class);
+        final List<KeyspaceTablePair> keyspaceTablePairs = new ArrayList<>();
+        final DiffJob.Params params = DiffJob.getJobParams(mockJob, mockConfig, keyspaceTablePairs);
+        assertNotNull(params.jobId);
     }
 
     private void splitTestHelper(TokenHelper tokens)
@@ -53,5 +91,22 @@ public class DiffJobTest
         assertEquals(splits.get(splits.size() - 1).end, tokens.max());
         for (int i = 0; i < splits.size(); i++)
             assertEquals(i, splits.get(i).splitNumber);
+    }
+
+    private class MockConfig extends AbstractMockJobConfiguration {
+        @Override
+        public int splits() {
+            return 2;
+        }
+
+        @Override
+        public int buckets() {
+            return 2;
+        }
+
+        @Override
+        public Optional<UUID> jobId() {
+            return Optional.of(UUID.randomUUID());
+        }
     }
 }
