@@ -122,9 +122,12 @@ public class DiffJob {
         ClusterProvider metadataProvider = ClusterProvider.getProvider(configuration.clusterConfig("metadata"), "metadata");
         JobMetadataDb.JobLifeCycle job = null;
         UUID jobId = null;
-        try (Cluster metadataCluster = metadataProvider.getCluster();
-             Session metadataSession = metadataCluster.connect()) {
+        Cluster metadataCluster = null;
+        Session metadataSession = null;
 
+        try {
+            metadataCluster = metadataProvider.getCluster();
+            metadataSession = metadataCluster.connect();
             RetryStrategyProvider retryStrategyProvider = RetryStrategyProvider.create(configuration.retryOptions());
             MetadataKeyspaceOptions metadataOptions = configuration.metadataOptions();
             JobMetadataDb.Schema.maybeInitialize(metadataSession, metadataOptions, retryStrategyProvider);
@@ -197,18 +200,32 @@ public class DiffJob {
                 Differ.shutdown();
                 JobMetadataDb.ProgressTracker.resetStatements();
             }
+            if (metadataCluster != null) {
+                metadataCluster.close();
+            }
+            if (metadataSession != null) {
+                metadataSession.close();
+            }
+
         }
     }
 
-    private static Params getJobParams(JobMetadataDb.JobLifeCycle job, JobConfiguration conf, List<KeyspaceTablePair> keyspaceTables) {
+    @VisibleForTesting
+    static Params getJobParams(JobMetadataDb.JobLifeCycle job, JobConfiguration conf, List<KeyspaceTablePair> keyspaceTables) {
         if (conf.jobId().isPresent()) {
-            return job.getJobParams(conf.jobId().get());
-        } else {
-            return new Params(UUID.randomUUID(),
-                              keyspaceTables,
-                              conf.buckets(),
-                              conf.splits());
+            final Params jobParams = job.getJobParams(conf.jobId().get());
+            if(jobParams != null) {
+                // When job_id is passed as a config property for the first time, we will not have metadata associated
+                // with job_id in metadata table. we should return jobParams from the table only when jobParams is not null
+                // Otherwise return new jobParams with provided job_id
+               return jobParams;
+            }
         }
+        final UUID jobId = conf.jobId().isPresent() ? conf.jobId().get() : UUID.randomUUID();
+        return new Params(jobId,
+                          keyspaceTables,
+                          conf.buckets(),
+                          conf.splits());
     }
 
     private static List<Split> getSplits(JobConfiguration config, TokenHelper tokenHelper) {

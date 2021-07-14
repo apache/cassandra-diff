@@ -369,7 +369,7 @@ public class JobMetadataDb {
                                                          metadataKeyspace, Schema.RUNNING_JOBS),
                                            params.jobId);
             if (!rs.one().getBool("[applied]")) {
-                logger.info("Aborting due to inability to mark job as running. " +
+                logger.info("Could not mark job as running. " +
                             "Did a previous run of job id {} fail non-gracefully?",
                             params.jobId);
                 throw new RuntimeException("Unable to mark job running, aborting");
