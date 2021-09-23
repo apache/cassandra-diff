@@ -21,16 +21,65 @@ package org.apache.cassandra.diff;
 
 import java.math.BigInteger;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.google.common.base.VerifyException;
 import com.google.common.collect.Lists;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class DifferTest {
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
+
+    @Test
+    public void testIncludeAllPartitions() {
+        final PartitionKey testKey = new RangeComparatorTest.TestPartitionKey(0);
+        final UUID uuid = UUID.fromString("cde3b15d-2363-4028-885a-52de58bad64e");
+        assertTrue(Differ.shouldIncludePartition(uuid, 1).test(testKey));
+    }
+
+    @Test
+    public void shouldIncludePartitionWithProbabilityInvalidProbability() {
+        final PartitionKey testKey = new RangeComparatorTest.TestPartitionKey(0);
+        final UUID uuid = UUID.fromString("cde3b15d-2363-4028-885a-52de58bad64e");
+        expectedException.expect(IllegalArgumentException.class);
+        expectedException.expectMessage("Invalid partition sampling property -1.0, it should be between 0 and 1");
+        Differ.shouldIncludePartition(uuid, -1).test(testKey);
+    }
+
+    @Test
+    public void shouldIncludePartitionWithProbabilityHalf() {
+        final PartitionKey testKey = new RangeComparatorTest.TestPartitionKey(0);
+        int count = 0;
+        final UUID uuid = UUID.fromString("cde3b15d-2363-4028-885a-52de58bad64e");
+        final Predicate<PartitionKey> partitionSampler = Differ.shouldIncludePartition(uuid, 0.5);
+        for (int i = 0; i < 20; i++) {
+            if (partitionSampler.test(testKey)) {
+                count++;
+            }
+        }
+        assertTrue(count <= 15);
+        assertTrue(count >= 5);
+    }
+
+    @Test
+    public void shouldIncludePartitionShouldGenerateSameSequenceForGivenJobId() {
+        final UUID uuid = UUID.fromString("cde3b15d-2363-4028-885a-52de58bad64e");
+        final PartitionKey testKey = new RangeComparatorTest.TestPartitionKey(0);
+        final Predicate<PartitionKey> partitionSampler1 = Differ.shouldIncludePartition(uuid, 0.5);
+        final Predicate<PartitionKey> partitionSampler2 = Differ.shouldIncludePartition(uuid, 0.5);
+        for (int i = 0; i < 10; i++) {
+            assertEquals(partitionSampler2.test(testKey), partitionSampler1.test(testKey));
+        }
+    }
 
     @Test(expected = VerifyException.class)
     public void rejectNullStartOfRange() {

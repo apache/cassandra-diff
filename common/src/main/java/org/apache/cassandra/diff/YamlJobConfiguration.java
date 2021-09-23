@@ -48,6 +48,7 @@ public class YamlJobConfiguration implements JobConfiguration {
     public String specific_tokens = null;
     public String disallowed_tokens = null;
     public RetryOptions retry_options;
+    public double partition_sampling_probability = 1;
 
     public static YamlJobConfiguration load(InputStream inputStream) {
         Yaml yaml = new Yaml(new CustomClassLoaderConstructor(YamlJobConfiguration.class,
@@ -103,6 +104,11 @@ public class YamlJobConfiguration implements JobConfiguration {
         return metadata_options;
     }
 
+    @Override
+    public double partitionSamplingProbability() {
+        return partition_sampling_probability;
+    }
+
     public RetryOptions retryOptions() {
         return retry_options;
     }
@@ -130,6 +136,7 @@ public class YamlJobConfiguration implements JobConfiguration {
                ", keyspace_tables=" + keyspace_tables +
                ", buckets=" + buckets +
                ", rate_limit=" + rate_limit +
+               ", partition_sampling_probability=" + partition_sampling_probability +
                ", job_id='" + job_id + '\'' +
                ", token_scan_fetch_size=" + token_scan_fetch_size +
                ", partition_read_fetch_size=" + partition_read_fetch_size +
