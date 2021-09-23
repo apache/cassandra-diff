@@ -27,10 +27,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -63,6 +65,7 @@ public class Differ implements Serializable
     private final double reverseReadProbability;
     private final SpecificTokens specificTokens;
     private final RetryStrategyProvider retryStrategyProvider;
+    private final double partitionSamplingProbability;
 
     private static DiffCluster srcDiffCluster;
     private static DiffCluster targetDiffCluster;
@@ -103,6 +106,7 @@ public class Differ implements Serializable
         this.reverseReadProbability = config.reverseReadProbability();
         this.specificTokens = config.specificTokens();
         this.retryStrategyProvider = retryStrategyProvider;
+        this.partitionSamplingProbability = config.partitionSamplingProbability();
         synchronized (Differ.class)
         {
             /*
@@ -225,10 +229,26 @@ public class Differ implements Serializable
                                                               mismatchReporter,
                                                               journal,
                                                               COMPARISON_EXECUTOR);
-
-        final RangeStats tableStats = rangeComparator.compare(sourceKeys, targetKeys, partitionTaskProvider);
+        final Predicate<PartitionKey> partitionSamplingFunction = shouldIncludePartition(jobId, partitionSamplingProbability);
+        final RangeStats tableStats = rangeComparator.compare(sourceKeys, targetKeys, partitionTaskProvider, partitionSamplingFunction);
         logger.debug("Table [{}] stats - ({})", context.table.getTable(), tableStats);
         return tableStats;
+    }
+
+    // Returns a function which decides if we should include a partition for diffing
+    // Uses probability for sampling.
+    @VisibleForTesting
+    static Predicate<PartitionKey> shouldIncludePartition(final UUID jobId, final double partitionSamplingProbability) {
+        if (partitionSamplingProbability > 1 || partitionSamplingProbability <= 0) {
+            logger.error("Invalid partition sampling property {}, it should be between 0 and 1", partitionSamplingProbability);
+            throw new IllegalArgumentException("Invalid partition sampling property, it should be between 0 and 1");
+        }
+        if (partitionSamplingProbability == 1) {
+            return partitionKey -> true;
+        } else {
+            final Random random = new Random(jobId.hashCode());
+            return partitionKey -> random.nextDouble() <= partitionSamplingProbability;
+        }
     }
 
     private Iterator<Row> fetchRows(DiffContext context, PartitionKey key, boolean shouldReverse, DiffCluster.Type type) {

@@ -88,6 +88,13 @@ public interface JobConfiguration extends Serializable {
     MetadataKeyspaceOptions metadataOptions();
 
     /**
+     * Sampling probability ranges from 0-1 which decides how many partitions are to be diffed using probabilistic diff
+     * default value is 1 which means all the partitions are diffed
+     * @return partitionSamplingProbability
+     */
+    double partitionSamplingProbability();
+
+    /**
      * Contains the options that specify the retry strategy for retrieving data at the application level.
      * Note that it is different than cassandra java driver's {@link com.datastax.driver.core.policies.RetryPolicy},
      * which is evaluated at the Netty worker threads.

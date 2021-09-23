@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.google.common.base.Verify;
 import org.slf4j.Logger;
@@ -57,6 +58,22 @@ public class RangeComparator {
     public RangeStats compare(Iterator<PartitionKey> sourceKeys,
                               Iterator<PartitionKey> targetKeys,
                               Function<PartitionKey, PartitionComparator> partitionTaskProvider) {
+        return compare(sourceKeys,targetKeys,partitionTaskProvider, partitionKey -> true);
+    }
+
+    /**
+     * Compares partitions in src and target clusters.
+     *
+     * @param sourceKeys partition keys in the source cluster
+     * @param targetKeys partition keys in the target cluster
+     * @param partitionTaskProvider comparision task
+     * @param partitionSampler samples partitions based on the probability for probabilistic diff
+     * @return stats about the diff
+     */
+    public RangeStats compare(Iterator<PartitionKey> sourceKeys,
+                              Iterator<PartitionKey> targetKeys,
+                              Function<PartitionKey, PartitionComparator> partitionTaskProvider,
+                              Predicate<PartitionKey> partitionSampler) {
 
         final RangeStats rangeStats = RangeStats.newStats();
         // We can catch this condition earlier, but it doesn't hurt to also check here
@@ -115,11 +132,16 @@ public class RangeComparator {
 
                     BigInteger token = sourceKey.getTokenAsBigInteger();
                     try {
-                        PartitionComparator comparisonTask = partitionTaskProvider.apply(sourceKey);
-                        comparisonExecutor.submit(comparisonTask,
-                                                  onSuccess(rangeStats, partitionCount, token, highestTokenSeen, mismatchReporter, journal),
-                                                  onError(rangeStats, token, errorReporter),
-                                                  phaser);
+                        // Use probabilisticPartitionSampler for sampling partitions, skip partition
+                        // if the sampler returns false otherwise run diff on that partition
+                        if (partitionSampler.test(sourceKey)) {
+                            PartitionComparator comparisonTask = partitionTaskProvider.apply(sourceKey);
+                            comparisonExecutor.submit(comparisonTask,
+                                                      onSuccess(rangeStats, partitionCount, token, highestTokenSeen, mismatchReporter, journal),
+                                                      onError(rangeStats, token, errorReporter),
+                                                      phaser);
+                        }
+
                     } catch (Throwable t) {
                         // Handle errors thrown when creating the comparison task. This should trap timeouts and
                         // unavailables occurring when performing the initial query to read the full partition.

@@ -29,6 +29,11 @@ public class SchemaTest {
         public List<String> disallowedKeyspaces() {
             return disallowedKeyspaces;
         }
+
+        @Override
+        public double partitionSamplingProbability() {
+            return 1;
+        }
     }
 
     @Test

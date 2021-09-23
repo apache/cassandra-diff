@@ -57,6 +57,38 @@ public class RangeComparatorTest {
     private RetryStrategyProvider mockRetryStrategyFactory = RetryStrategyProvider.create(null); // create a NoRetry provider
 
     @Test
+    public void probabilisticDiffIncludeAllPartitions() {
+        RangeComparator comparator = comparator(context(0L, 100L));
+        RangeStats stats = comparator.compare(keys(0, 1, 2, 3, 4, 5, 6), keys(0,1, 2, 3, 4, 5, 7), this::alwaysMatch);
+        assertFalse(stats.isEmpty());
+        assertEquals(1, stats.getOnlyInSource());
+        assertEquals(1, stats.getOnlyInTarget());
+        assertEquals(6, stats.getMatchedPartitions());
+        assertReported(6, MismatchType.ONLY_IN_SOURCE, mismatches);
+        assertReported(7, MismatchType.ONLY_IN_TARGET, mismatches);
+        assertNothingReported(errors, journal);
+        assertCompared(0, 1, 2, 3, 4, 5);
+    }
+
+    @Test
+    public void probabilisticDiffProbabilityHalf() {
+        RangeComparator comparator = comparator(context(0L, 100L));
+        RangeStats stats = comparator.compare(keys(0, 1, 2, 3, 4, 5, 6),
+                                              keys(0, 1, 2, 3, 4, 5, 7),
+                                              this::alwaysMatch,
+                                              key -> key.getTokenAsBigInteger().intValue() % 2 == 0);
+        assertFalse(stats.isEmpty());
+        assertEquals(1, stats.getOnlyInSource());
+        assertEquals(1, stats.getOnlyInTarget());
+        assertEquals(3, stats.getMatchedPartitions());
+        assertReported(6, MismatchType.ONLY_IN_SOURCE, mismatches);
+        assertReported(7, MismatchType.ONLY_IN_TARGET, mismatches);
+        assertNothingReported(errors, journal);
+        assertCompared(0, 2, 4);
+    }
+
+
+    @Test
     public void emptyRange() {
         RangeComparator comparator = comparator(context(100L, 100L));
         RangeStats stats = comparator.compare(keys(), keys(), this::alwaysMatch);
