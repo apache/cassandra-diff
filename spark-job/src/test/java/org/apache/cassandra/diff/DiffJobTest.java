@@ -108,5 +108,10 @@ public class DiffJobTest
         public Optional<UUID> jobId() {
             return Optional.of(UUID.randomUUID());
         }
+
+        @Override
+        public double partitionSamplingProbability() {
+            return 1;
+        }
     }
 }
